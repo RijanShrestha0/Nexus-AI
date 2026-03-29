@@ -13,6 +13,16 @@ router.get('/metrics', verifyToken, dashboardController.getMetrics);
 // @access  Private
 router.get('/agents', verifyToken, dashboardController.getActiveAgents);
 
+// @route   POST /api/dashboard/agents
+// @desc    Add a live new agent gracefully to array stream
+// @access  Private
+router.post('/agents', verifyToken, dashboardController.addAgent);
+
+// @route   DELETE /api/dashboard/agents/:id
+// @desc    Delete specified user agent mapped context
+// @access  Private
+router.delete('/agents/:id', verifyToken, dashboardController.deleteAgent);
+
 // @route   GET /api/dashboard/activity
 // @desc    Get live dynamic console execution mapping feed
 // @access  Private

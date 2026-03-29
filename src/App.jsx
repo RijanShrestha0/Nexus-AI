@@ -7,6 +7,9 @@ import { FeaturesPage } from './pages/FeaturesPage';
 import { SolutionsPage } from './pages/SolutionsPage';
 import { PricingPage } from './pages/PricingPage';
 import { Dashboard } from './pages/Dashboard';
+import { Agents } from './pages/Agents';
+import { Integrations } from './pages/Integrations';
+import { Settings } from './pages/Settings';
 import { AuthProvider } from './context/AuthContext';
 
 export default function App() {
@@ -20,6 +23,9 @@ export default function App() {
         <Route path="/solutions" element={<SolutionsPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/agents" element={<Agents />} />
+        <Route path="/integrations" element={<Integrations />} />
+        <Route path="/settings" element={<Settings />} />
       </Routes>
     </AuthProvider>
   );

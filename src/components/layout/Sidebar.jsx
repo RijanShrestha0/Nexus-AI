@@ -29,7 +29,7 @@ export function Sidebar() {
           <Users size={18} /> Agents
         </NavLink>
         <NavLink 
-          to="/data" 
+          to="/integrations" 
           className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
         >
           <Database size={18} /> Integrations

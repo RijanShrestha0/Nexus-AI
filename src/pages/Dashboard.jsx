@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bot, Database, Server } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
+import { useAgents } from '../hooks/useAgents';
 import { Sidebar } from '../components/layout/Sidebar';
 import { StatCard } from '../components/dashboard/StatCard';
 import { ActivityFeed } from '../components/dashboard/ActivityFeed';
@@ -22,7 +23,8 @@ const staggerContainer = {
 export function Dashboard() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
-  const { metrics, loading } = useDashboardMetrics(token);
+  const { metrics, loading: metricsLoading } = useDashboardMetrics(token);
+  const { agents, loading: agentsLoading } = useAgents(token);
 
   useEffect(() => {
     // Basic route protection
@@ -31,7 +33,7 @@ export function Dashboard() {
     }
   }, [user, token, navigate]);
 
-  if ((!user && token) || loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading securely injected application data...</div>;
+  if ((!user && token) || metricsLoading || agentsLoading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading securely injected application data...</div>;
   if (!user) return null;
 
   return (
@@ -79,38 +81,26 @@ export function Dashboard() {
             <motion.div variants={fadeInUp} className="dashboard-panel">
               <h2 className="panel-title">Active AI Agents</h2>
               <div className="agents-list">
-                <div className="agent-item">
-                  <div className="agent-info">
-                    <div className="agent-icon"><Bot size={20} /></div>
-                    <div>
-                      <p style={{ fontWeight: 500, fontSize: '0.875rem' }}>Customer Support NLP</p>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>Running normally</span>
+                {agents && agents.length > 0 ? (
+                  agents.map((agent) => (
+                    <div className="agent-item" key={agent.id}>
+                      <div className="agent-info">
+                        <div className="agent-icon">
+                          {agent.type === 'bot' ? <Bot size={20} /> : <Database size={20} />}
+                        </div>
+                        <div>
+                          <p style={{ fontWeight: 500, fontSize: '0.875rem' }}>{agent.name}</p>
+                          <span style={{ fontSize: '0.75rem', color: agent.status === 'Initializing' ? 'var(--text-muted)' : 'var(--success)' }}>
+                            {agent.status}
+                          </span>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" to="/agents" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Manage</Button>
                     </div>
-                  </div>
-                  <Button variant="outline" size="sm" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Manage</Button>
-                </div>
-                
-                <div className="agent-item">
-                  <div className="agent-info">
-                    <div className="agent-icon"><Database size={20} /></div>
-                    <div>
-                      <p style={{ fontWeight: 500, fontSize: '0.875rem' }}>CRM Sync Pipeline</p>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>Running normally</span>
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Manage</Button>
-                </div>
-                
-                <div className="agent-item">
-                  <div className="agent-info">
-                    <div className="agent-icon"><Server size={20} /></div>
-                    <div>
-                      <p style={{ fontWeight: 500, fontSize: '0.875rem' }}>Log Intelligence</p>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Idle</span>
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Manage</Button>
-                </div>
+                  ))
+                ) : (
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>No active agents populated natively yet.</p>
+                )}
               </div>
             </motion.div>
             
