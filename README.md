@@ -55,7 +55,7 @@ src/
 
 1. **Clone the repository** (if applicable) or navigate into the directory:
    ```bash
-   cd try1ui
+   cd Nexus-AI
    ```
 
 2. **Install the dependencies**:
