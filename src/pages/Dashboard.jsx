@@ -1,12 +1,12 @@
 import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Bot, Network, Server } from 'lucide-react';
+import { Bot, Database, Server } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import { Sidebar } from '../components/layout/Sidebar';
 import { StatCard } from '../components/dashboard/StatCard';
 import { ActivityFeed } from '../components/dashboard/ActivityFeed';
-import { useDashboardSimulation } from '../hooks/useDashboardSimulation';
 import { Button } from '../components/ui/Button';
 
 const fadeInUp = {
@@ -20,18 +20,19 @@ const staggerContainer = {
 };
 
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const navigate = useNavigate();
-  const { tasks } = useDashboardSimulation();
+  const { metrics, loading } = useDashboardMetrics(token);
 
   useEffect(() => {
     // Basic route protection
-    if (!user) {
+    if (!user && !token) {
       navigate('/login');
     }
-  }, [user, navigate]);
+  }, [user, token, navigate]);
 
-  if (!user) return null; // Prevent flicker while redirecting
+  if ((!user && token) || loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading securely injected application data...</div>;
+  if (!user) return null;
 
   return (
     <div className="dashboard-layout">
@@ -52,20 +53,26 @@ export function Dashboard() {
           initial="hidden"
           animate="visible"
         >
-          {/* Top row stats */}
+          {/* Top row stats loaded cleanly from native backend JSON database logic */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
-            <motion.div variants={fadeInUp}>
-              <StatCard label="Total Executions" value={tasks} trend="12.5%" isAnimatedValue />
-            </motion.div>
-            <motion.div variants={fadeInUp}>
-              <StatCard label="Active Agents" value={14} trend="3 new" />
-            </motion.div>
-            <motion.div variants={fadeInUp}>
-              <StatCard label="Success Rate" value="99.8%" trend="0.1%" />
-            </motion.div>
-            <motion.div variants={fadeInUp}>
-              <StatCard label="Time Saved" value="1,400h" trend="8%" />
-            </motion.div>
+            {metrics ? (
+              <>
+                <motion.div variants={fadeInUp}>
+                  <StatCard label="Total Executions" value={metrics.tasksExecuted} trend={metrics.trends.tasks} isAnimatedValue />
+                </motion.div>
+                <motion.div variants={fadeInUp}>
+                  <StatCard label="Active Agents" value={metrics.activeAgents} trend={metrics.trends.agents} />
+                </motion.div>
+                <motion.div variants={fadeInUp}>
+                  <StatCard label="Success Rate" value={metrics.successRate} trend={metrics.trends.success} />
+                </motion.div>
+                <motion.div variants={fadeInUp}>
+                  <StatCard label="Time Saved" value={metrics.timeSaved} trend={metrics.trends.time} />
+                </motion.div>
+              </>
+            ) : (
+                <div style={{ gridColumn: 'span 4', textAlign: 'center', padding: '2rem' }}>Loading dynamic metrics from Backend API server...</div>
+            )}
           </div>
           
           <div className="dashboard-grid">
