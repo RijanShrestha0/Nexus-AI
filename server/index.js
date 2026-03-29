@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { errorHandler } = require('./middleware/error');
 const express = require('express');
 const cors = require('cors');
 
@@ -22,11 +23,8 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// Error Handling Middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something broke safely on the backend!' });
-});
+// Centralized Error Handling Middleware
+app.use(errorHandler);
 
 // Boot Database/Server Link
 app.listen(PORT, () => {

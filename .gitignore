@@ -25,3 +25,14 @@ dist-ssr
 *.sw?
 
 UPDATE.md
+
+# Platform Configuration & Secrets
+.env
+.env.local
+.env.*.local
+server/.env
+server/node_modules/
+dist/
+build/
+*.bak
+*.tmp

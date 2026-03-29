@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Bot, Database, Server } from 'lucide-react';
+import { Bot, Database, Server, Plus, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import { useAgents } from '../hooks/useAgents';
@@ -11,13 +11,13 @@ import { ActivityFeed } from '../components/dashboard/ActivityFeed';
 import { Button } from '../components/ui/Button';
 
 const fadeInUp = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4 } }
 };
 
-const staggerContainer = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
+const skeletonPulse = {
+  initial: { opacity: 0.4 },
+  animate: { opacity: 0.8, transition: { repeat: Infinity, duration: 1.5, repeatType: "reverse" } }
 };
 
 export function Dashboard() {
@@ -27,13 +27,22 @@ export function Dashboard() {
   const { agents, loading: agentsLoading } = useAgents(token);
 
   useEffect(() => {
-    // Basic route protection
     if (!user && !token) {
       navigate('/login');
     }
   }, [user, token, navigate]);
 
-  if ((!user && token) || metricsLoading || agentsLoading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading securely injected application data...</div>;
+  // If we have NO user and NO token verification yet, show minimal shell or spinner
+  if (!user && token) {
+     return (
+       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)' }}>
+         <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}>
+           <Loader2 color="var(--primary-gradient)" size={40} />
+         </motion.div>
+       </div>
+     );
+  }
+
   if (!user) return null;
 
   return (
@@ -49,39 +58,52 @@ export function Dashboard() {
           </div>
         </div>
         
-        <motion.div 
-          className="dashboard-overview"
-          variants={staggerContainer}
-          initial="hidden"
-          animate="visible"
-        >
-          {/* Top row stats loaded cleanly from native backend JSON database logic */}
+        <div className="dashboard-overview">
+          {/* Top Stat Row with Skeletons */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
             {metrics ? (
               <>
-                <motion.div variants={fadeInUp}>
+                <motion.div variants={fadeInUp} initial="hidden" animate="visible">
                   <StatCard label="Total Executions" value={metrics.tasksExecuted} trend={metrics.trends.tasks} isAnimatedValue />
                 </motion.div>
-                <motion.div variants={fadeInUp}>
+                <motion.div variants={fadeInUp} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
                   <StatCard label="Active Agents" value={metrics.activeAgents} trend={metrics.trends.agents} />
                 </motion.div>
-                <motion.div variants={fadeInUp}>
+                <motion.div variants={fadeInUp} initial="hidden" animate="visible" transition={{ delay: 0.2 }}>
                   <StatCard label="Success Rate" value={metrics.successRate} trend={metrics.trends.success} />
                 </motion.div>
-                <motion.div variants={fadeInUp}>
+                <motion.div variants={fadeInUp} initial="hidden" animate="visible" transition={{ delay: 0.3 }}>
                   <StatCard label="Time Saved" value={metrics.timeSaved} trend={metrics.trends.time} />
                 </motion.div>
               </>
             ) : (
-                <div style={{ gridColumn: 'span 4', textAlign: 'center', padding: '2rem' }}>Loading dynamic metrics from Backend API server...</div>
+                [1,2,3,4].map(i => (
+                  <motion.div key={i} {...skeletonPulse} className="dashboard-panel" style={{ height: '120px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }} />
+                ))
             )}
           </div>
           
           <div className="dashboard-grid">
-            <motion.div variants={fadeInUp} className="dashboard-panel">
-              <h2 className="panel-title">Active AI Agents</h2>
+            <motion.div variants={fadeInUp} initial="hidden" animate="visible" transition={{ delay: 0.4 }} className="dashboard-panel">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 className="panel-title" style={{ margin: 0 }}>Active AI Agents</h2>
+                <Button variant="ghost" size="sm" to="/agents" style={{ color: 'var(--primary-gradient)', padding: '0.25rem 0.5rem' }}>
+                  <Plus size={16} />
+                </Button>
+              </div>
+
               <div className="agents-list">
-                {agents && agents.length > 0 ? (
+                {agentsLoading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="agent-item" style={{ border: 'none' }}>
+                      <motion.div {...skeletonPulse} style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(0,0,0,0.05)' }} />
+                      <div style={{ flex: 1 }}>
+                        <motion.div {...skeletonPulse} style={{ width: '120px', height: '14px', background: 'rgba(0,0,0,0.05)', borderRadius: '4px', marginBottom: '6px' }} />
+                        <motion.div {...skeletonPulse} style={{ width: '60px', height: '10px', background: 'rgba(0,0,0,0.05)', borderRadius: '2px' }} />
+                      </div>
+                    </div>
+                  ))
+                ) : agents.length > 0 ? (
                   agents.map((agent) => (
                     <div className="agent-item" key={agent.id}>
                       <div className="agent-info">
@@ -104,12 +126,12 @@ export function Dashboard() {
               </div>
             </motion.div>
             
-            <motion.div variants={fadeInUp} className="dashboard-panel">
+            <motion.div variants={fadeInUp} initial="hidden" animate="visible" transition={{ delay: 0.5 }} className="dashboard-panel">
               <h2 className="panel-title">Live Activity log</h2>
               <ActivityFeed />
             </motion.div>
           </div>
-        </motion.div>
+        </div>
       </div>
     </div>
   );

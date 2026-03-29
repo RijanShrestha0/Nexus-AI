@@ -23,6 +23,10 @@ router.post('/agents', verifyToken, dashboardController.addAgent);
 // @access  Private
 router.delete('/agents/:id', verifyToken, dashboardController.deleteAgent);
 
+// @route   GET /api/dashboard/agents/:id/details
+// @access  Private
+router.get('/agents/:id/details', verifyToken, dashboardController.getAgentDetails);
+
 // @route   GET /api/dashboard/activity
 // @desc    Get live dynamic console execution mapping feed
 // @access  Private

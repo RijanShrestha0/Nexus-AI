@@ -1,10 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../middleware/auth');
-
-// In-Memory DB Simulation (Replace with mapped PostgreSQL/Mongoose or Prisma architecture)
-const usersDB = [];
-exports.usersDB = usersDB;
+const { usersDB } = require('../models/database');
 
 exports.register = async (req, res) => {
   try {
@@ -14,13 +11,11 @@ exports.register = async (req, res) => {
       return res.status(400).json({ error: 'Please specifically fill all actively required structured fields.' });
     }
 
-    // Check existing
     const existingUser = usersDB.find(u => u.email === email);
     if (existingUser) {
       return res.status(400).json({ error: 'User mapping natively exists.' });
     }
 
-    // Hash securely
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -32,14 +27,14 @@ exports.register = async (req, res) => {
       email,
       password: hashedPassword,
       role: 'admin',
+      residency: 'eu',
       createdAt: new Date().toISOString()
     };
 
     usersDB.push(newUser);
 
-    // Create Token universally
     const token = jwt.sign(
-      { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role }, 
+      { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role, residency: newUser.residency }, 
       JWT_SECRET, 
       { expiresIn: '24h' }
     );
@@ -51,7 +46,8 @@ exports.register = async (req, res) => {
         id: newUser.id,
         name: newUser.name,
         email: newUser.email,
-        role: newUser.role
+        role: newUser.role,
+        residency: newUser.residency
       }
     });
 
@@ -76,7 +72,7 @@ exports.login = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, name: user.name, role: user.role }, 
+      { id: user.id, email: user.email, name: user.name, role: user.role, residency: user.residency }, 
       JWT_SECRET, 
       { expiresIn: '24h' }
     );
@@ -88,7 +84,8 @@ exports.login = async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        residency: user.residency
       }
     });
 
@@ -99,8 +96,6 @@ exports.login = async (req, res) => {
 };
 
 exports.getMe = (req, res) => {
-  // `req.user` uniquely populated successfully via verifyToken
-  // We must physically verify the user exists in our current state boundary
   const user = usersDB.find(u => u.id === req.user.id);
   
   if (!user) {
@@ -113,7 +108,7 @@ exports.getMe = (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      residency: user.residency || 'eu' // mapping region residency
+      residency: user.residency || 'eu'
     } 
   });
 };
@@ -130,7 +125,6 @@ exports.updateProfile = async (req, res) => {
 
     const user = usersDB[userIndex];
 
-    // If updating sensitive fields, verify credentials if password is provided
     if (newPassword) {
       const isMatch = await bcrypt.compare(currentPassword, user.password);
       if (!isMatch) {
@@ -144,10 +138,8 @@ exports.updateProfile = async (req, res) => {
     if (email) user.email = email;
     if (residency) user.residency = residency;
 
-    // Update global reference
     usersDB[userIndex] = user;
 
-    // Re-sign token if name/email changed for UI consistency
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name, role: user.role, residency: user.residency }, 
       JWT_SECRET, 
@@ -161,7 +153,8 @@ exports.updateProfile = async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        residency: user.residency
       }
     });
 
