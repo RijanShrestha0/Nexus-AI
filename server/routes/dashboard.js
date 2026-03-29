@@ -28,4 +28,12 @@ router.delete('/agents/:id', verifyToken, dashboardController.deleteAgent);
 // @access  Private
 router.get('/activity', verifyToken, dashboardController.getActivityFeed);
 
+// @route   GET /api/dashboard/integrations
+// @access  Private
+router.get('/integrations', verifyToken, dashboardController.getIntegrations);
+
+// @route   POST /api/dashboard/integrations/toggle
+// @access  Private
+router.post('/integrations/toggle', verifyToken, dashboardController.toggleIntegration);
+
 module.exports = router;

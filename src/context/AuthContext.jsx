@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from './ToastContext';
 
 const AuthContext = createContext();
 
@@ -7,6 +8,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('nexus_token') || null);
   const navigate = useNavigate();
+  const { addToast } = useToast();
 
   // Verify specific tokens on standard app mount
   useEffect(() => {
@@ -47,12 +49,12 @@ export function AuthProvider({ children }) {
         navigate('/dashboard');
         return true;
       } else {
-        alert(data.error || 'Login failed.');
+        addToast(data.error || 'Invalid credentials.', 'error');
         return false;
       }
     } catch (err) {
       console.error(err);
-      alert('Unable to securely execute connection to backend. Is node actively running?');
+      addToast('Unable to securely execute connection to backend. Is node actively running?', 'error');
       return false;
     }
   };
@@ -71,14 +73,15 @@ export function AuthProvider({ children }) {
         setToken(data.token);
         localStorage.setItem('nexus_token', data.token);
         navigate('/dashboard');
+        addToast('Welcome to Nexus Platform!', 'success');
         return true;
       } else {
-        alert(data.error || 'Signup failed.');
+        addToast(data.error || 'Account creation rejected natively.', 'error');
         return false;
       }
     } catch (err) {
       console.error(err);
-      alert('Unable to natively reach backend server. Did you start API correctly?');
+      addToast('Unable to natively reach backend server. Did you start API correctly?', 'error');
       return false;
     }
   };
@@ -91,7 +94,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, setUser, token, setToken, login, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );

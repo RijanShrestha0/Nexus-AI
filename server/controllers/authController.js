@@ -4,6 +4,7 @@ const { JWT_SECRET } = require('../middleware/auth');
 
 // In-Memory DB Simulation (Replace with mapped PostgreSQL/Mongoose or Prisma architecture)
 const usersDB = [];
+exports.usersDB = usersDB;
 
 exports.register = async (req, res) => {
   try {
@@ -99,5 +100,73 @@ exports.login = async (req, res) => {
 
 exports.getMe = (req, res) => {
   // `req.user` uniquely populated successfully via verifyToken
-  res.json({ user: req.user });
+  // We must physically verify the user exists in our current state boundary
+  const user = usersDB.find(u => u.id === req.user.id);
+  
+  if (!user) {
+    return res.status(401).json({ error: 'Session context invalidated after server restart. Please re-authenticate.' });
+  }
+
+  res.json({ 
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      residency: user.residency || 'eu' // mapping region residency
+    } 
+  });
+};
+
+exports.updateProfile = async (req, res) => {
+  try {
+    const { name, email, residency, currentPassword, newPassword } = req.body;
+    const userId = req.user.id;
+    
+    const userIndex = usersDB.findIndex(u => u.id === userId);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User context not found.' });
+    }
+
+    const user = usersDB[userIndex];
+
+    // If updating sensitive fields, verify credentials if password is provided
+    if (newPassword) {
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return res.status(400).json({ error: 'Current password verification failed.' });
+      }
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+    }
+
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (residency) user.residency = residency;
+
+    // Update global reference
+    usersDB[userIndex] = user;
+
+    // Re-sign token if name/email changed for UI consistency
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name, role: user.role, residency: user.residency }, 
+      JWT_SECRET, 
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      message: 'Profile configuration updated successfully.',
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+
+  } catch (error) {
+    console.error('Update specifically failed:', error);
+    res.status(500).json({ error: 'Update pipeline crashed.' });
+  }
 };

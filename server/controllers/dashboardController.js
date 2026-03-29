@@ -1,4 +1,5 @@
 let agentsDB = [];
+let integrationsDB = {}; // map { userId: { slack: true, github: false, ... } }
 
 // Seed baseline metrics math
 let userBaselines = {};
@@ -82,4 +83,41 @@ exports.getActivityFeed = (req, res) => {
       }
     ]
   });
+};
+
+exports.getIntegrations = (req, res) => {
+  const userId = req.user.id;
+  
+  // Default stack if no data natively found
+  if (!integrationsDB[userId]) {
+    integrationsDB[userId] = {
+      slack: true,
+      github: true,
+      postgres: false,
+      gmail: false
+    };
+  }
+  
+  res.json({ integrations: integrationsDB[userId] });
+};
+
+exports.toggleIntegration = (req, res) => {
+  const userId = req.user.id;
+  const { integrationId } = req.body;
+  
+  if (!integrationsDB[userId]) {
+    integrationsDB[userId] = {
+      slack: true,
+      github: true,
+      postgres: false,
+      gmail: false
+    };
+  }
+  
+  if (integrationId in integrationsDB[userId]) {
+    integrationsDB[userId][integrationId] = !integrationsDB[userId][integrationId];
+    res.json({ success: true, integrations: integrationsDB[userId] });
+  } else {
+    res.status(400).json({ error: 'Integration ID mapping not found.' });
+  }
 };

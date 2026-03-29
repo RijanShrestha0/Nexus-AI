@@ -1,10 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Hexagon, LayoutDashboard, Database, Settings, Users, LogOut } from 'lucide-react';
+import { Hexagon, LayoutDashboard, Database, Settings, Users, LogOut, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 
 export function Sidebar() {
   const { logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   
   return (
     <div className="dashboard-sidebar">
@@ -42,8 +44,11 @@ export function Sidebar() {
         </NavLink>
       </nav>
       
-      <div className="sidebar-footer">
-        <button className="sidebar-link" onClick={logout} style={{ width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+      <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <button className="sidebar-link" onClick={toggleTheme} style={{ width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {theme === 'dark' ? <><Sun size={18} /> Light Mode</> : <><Moon size={18} /> Dark Mode</>}
+        </button>
+        <button className="sidebar-link" onClick={logout} style={{ width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <LogOut size={18} /> Sign Out
         </button>
       </div>

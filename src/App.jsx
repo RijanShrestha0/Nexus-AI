@@ -11,22 +11,28 @@ import { Agents } from './pages/Agents';
 import { Integrations } from './pages/Integrations';
 import { Settings } from './pages/Settings';
 import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
+import { ToastProvider } from './context/ToastContext';
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/features" element={<FeaturesPage />} />
-        <Route path="/solutions" element={<SolutionsPage />} />
-        <Route path="/pricing" element={<PricingPage />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/agents" element={<Agents />} />
-        <Route path="/integrations" element={<Integrations />} />
-        <Route path="/settings" element={<Settings />} />
-      </Routes>
-    </AuthProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/features" element={<FeaturesPage />} />
+            <Route path="/solutions" element={<SolutionsPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/agents" element={<Agents />} />
+            <Route path="/integrations" element={<Integrations />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

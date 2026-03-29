@@ -1,12 +1,14 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Hexagon } from 'lucide-react';
+import { Hexagon, Sun, Moon } from 'lucide-react';
 import { useScroll } from '../../hooks/useScroll';
+import { useTheme } from '../../context/ThemeContext';
 import { Button } from '../ui/Button';
 import { Link } from 'react-router-dom';
 
 export function Navbar() {
   const scrolled = useScroll(50);
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <motion.nav 
@@ -27,7 +29,14 @@ export function Navbar() {
           <Link to="/solutions">Solutions</Link>
           <Link to="/pricing">Pricing</Link>
         </div>
-        <div className="nav-actions">
+        <div className="nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button 
+            onClick={toggleTheme} 
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
+            aria-label="Toggle theme"
+          >
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
           <Button variant="ghost" to="/login">Sign In</Button>
           <Button variant="primary" to="/signup">Start Free Trial</Button>
         </div>

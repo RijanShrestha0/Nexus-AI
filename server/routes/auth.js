@@ -19,4 +19,9 @@ router.post('/login', authController.login);
 const { verifyToken } = require('../middleware/auth');
 router.get('/me', verifyToken, authController.getMe);
 
+// @route   PUT /api/auth/profile
+// @desc    Update profile context
+// @access  Private
+router.put('/profile', verifyToken, authController.updateProfile);
+
 module.exports = router;
