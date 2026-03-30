@@ -29,10 +29,9 @@ export function useAgents(token) {
     
     fetchAgents();
     
-    // Auto-refresh agents to catch status transitions (Initializing -> Active)
     const interval = setInterval(() => {
       if (isMounted) fetchAgents();
-    }, 5000); // 5s refresh for snappy status updates
+    }, 8000); // Pulse every 8s for live activity
     
     return () => {
       isMounted = false;
@@ -40,7 +39,7 @@ export function useAgents(token) {
     };
   }, [fetchAgents]);
 
-  const createAgent = async (name) => {
+  const createAgent = async (name, type, config) => {
     try {
       const res = await fetch('http://localhost:5005/api/dashboard/agents', {
         method: 'POST',
@@ -48,7 +47,7 @@ export function useAgents(token) {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ name, type: 'bot' })
+        body: JSON.stringify({ name, type, config })
       });
       if (res.ok) {
         await fetchAgents();

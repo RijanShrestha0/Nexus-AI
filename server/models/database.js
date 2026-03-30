@@ -1,17 +1,18 @@
 /**
  * Nexus AI - Data Storage Layer
  * Currently: In-Memory (SaaS Prototype)
- * Mapped for future: PostgreSQL (Prisma) / MongoDB (Mongoose)
  */
 
 const usersDB = [];
-const agentsDB = [];
-const integrationsDB = {}; // format: { userId: { slack: true, github: true } }
+const agentsDB = []; // Each agent: { id, userId, name, type, status, config, createdAt }
+const logsDB = [];   // Each log: { id, agentId, userId, timestamp, action, result, type }
+const integrationsDB = {}; // map { userId: { slack: { connected: false }, github: { connected: false, accessToken: null } } }
 const userBaselines = {};
 
 module.exports = {
   usersDB,
   agentsDB,
+  logsDB,
   integrationsDB,
   userBaselines
 };

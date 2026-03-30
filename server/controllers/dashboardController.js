@@ -1,10 +1,9 @@
-const { agentsDB, integrationsDB, userBaselines } = require('../models/database');
+const { agentsDB, integrationsDB, userBaselines, logsDB } = require('../models/database');
 
 exports.getMetrics = (req, res) => {
   const userId = req.user.id;
   const userAgents = agentsDB.filter(a => a.userId === userId);
   
-  // If no agents are active, this is a clean workspace state
   if (userAgents.length === 0) {
     return res.json({
       metrics: {
@@ -12,19 +11,14 @@ exports.getMetrics = (req, res) => {
         activeAgents: 0,
         successRate: '0.0%',
         timeSaved: '0.0h',
-        trends: {
-          tasks: '0%',
-          agents: '0',
-          success: '0%',
-          time: '0%'
-        }
+        trends: { tasks: '0%', agents: '0', success: '0%', time: '0%' }
       }
     });
   }
 
   if (!userBaselines[userId]) {
     userBaselines[userId] = {
-      baseTasks: 25, // Start with a small "warm-up" baseline upon first deployment
+      baseTasks: 25,
       successBase: 98.4
     };
   }
@@ -44,7 +38,7 @@ exports.getMetrics = (req, res) => {
         tasks: '+12.5%',
         agents: `+${userAgents.length}`,
         success: '+0.2%',
-        time: '+8.2%'
+        time: '+18.2%'
       }
     }
   });
@@ -54,13 +48,13 @@ exports.getActiveAgents = (req, res) => {
   const userId = req.user.id;
   const now = new Date();
   
-  // Update status based on age before returning
   const userAgents = agentsDB
     .filter(a => a.userId === userId)
     .map(agent => {
       const createdAt = new Date(agent.createdAt);
       const ageSeconds = (now - createdAt) / 1000;
       
+      // Status remains Active if toggled manually, otherwise syncs bootstrap status
       if (agent.status === 'Initializing' && ageSeconds > 6) {
         agent.status = 'Active';
       }
@@ -70,8 +64,22 @@ exports.getActiveAgents = (req, res) => {
   res.json({ agents: userAgents });
 };
 
+exports.toggleAgentStatus = (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const userId = req.user.id;
+
+  const agent = agentsDB.find(a => a.id === id && a.userId === userId);
+  if (agent) {
+    agent.status = status; // Active | Inactive
+    res.json({ message: `Agent Unit ${id} status toggled manually.`, agent });
+  } else {
+    res.status(404).json({ error: 'Agent unit mapping not found.' });
+  }
+};
+
 exports.addAgent = (req, res) => {
-  const { name, type } = req.body;
+  const { name, type, config } = req.body;
   const userId = req.user.id;
 
   const newAgent = {
@@ -80,11 +88,47 @@ exports.addAgent = (req, res) => {
     name: name || 'Unnamed Agent',
     status: 'Initializing',
     type: type || 'bot',
+    config: config || {},
     createdAt: new Date().toISOString()
   };
 
   agentsDB.push(newAgent);
   res.status(201).json({ message: 'Agent deployed securely.', agent: newAgent });
+};
+
+exports.getGitHubRepos = async (req, res) => {
+  const userId = req.user.id;
+  const userIntegrations = integrationsDB[userId];
+  const githubToken = userIntegrations?.github?.accessToken || process.env.GITHUB_ACCESS_TOKEN;
+
+  if (!githubToken) {
+    return res.status(400).json({ error: 'GitHub Authentication missing for your account context.' });
+  }
+
+  try {
+    const response = await fetch('https://api.github.com/user/repos?per_page=100', {
+       headers: {
+        'Authorization': `Bearer ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'NexusAI-Frontend'
+      }
+    });
+
+    if (!response.ok) throw new Error(`API Connection Failed: ${response.status}`);
+    const repos = await response.json();
+    
+    // Select essential repo boundaries
+    const cleanRepos = repos.map(repo => ({
+      id: repo.id,
+      name: repo.full_name,
+      description: repo.description
+    }));
+
+    res.json({ repos: cleanRepos });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Natively failed to resolve GitHub repository cluster.' });
+  }
 };
 
 exports.deleteAgent = (req, res) => {
@@ -102,68 +146,191 @@ exports.deleteAgent = (req, res) => {
 
 exports.getActivityFeed = (req, res) => {
   const userId = req.user.id;
-  const userAgents = agentsDB.filter(a => a.userId === userId);
+  // Use real logs if they exist
+  const userLogs = logsDB.filter(l => l.userId === userId).slice(-5).reverse();
   
-  const activities = [];
-  
-  activities.push({
-    id: 'base_1',
-    agentName: 'System Kernel',
-    action: 'Mapping platform security boundaries',
-    timestamp: 'Just now',
-    status: 'success'
-  });
-
-  userAgents.slice(0, 2).forEach((agent, i) => {
-    if (i === 0) {
-      activities.push({
-        id: `act_deploy_${agent.id}`,
-        agentName: agent.name,
-        action: 'Successfully initialized core context',
-        timestamp: '1 min ago',
-        status: 'success'
-      });
-    } else {
-       activities.push({
-        id: `act_task_${agent.id}`,
-        agentName: agent.name,
-        action: 'Executing autonomous data classification',
-        timestamp: 'Ongoing...',
-        status: 'pending'
-      });
-    }
-  });
-
-  if (userAgents.length === 0) {
-    activities.push({
-      id: 'onboard_1',
-      agentName: 'Nexus Onboard',
-      action: 'Awaiting first agent deployment...',
-      timestamp: 'Standby',
-      status: 'pending'
-    });
+  if (userLogs.length > 0) {
+     const activities = userLogs.map(l => ({
+        id: l.id,
+        agentName: l.action === 'github-monitor' ? 'GitHub Monitor' : 'Issue Creator',
+        action: l.result,
+        timestamp: 'Just now',
+        status: l.type === 'ERROR' ? 'error' : 'success'
+     }));
+     return res.json({ activities });
   }
 
-  res.json({ activities });
+  // Fallback if no logs yet
+  res.json({ activities: [
+    { id: 'base_1', agentName: 'System Kernel', action: 'Monitoring platform security', timestamp: 'Just now', status: 'success' }
+  ] });
 };
 
 exports.getIntegrations = (req, res) => {
   const userId = req.user.id;
   if (!integrationsDB[userId]) {
-    integrationsDB[userId] = { slack: true, github: true, postgres: false, gmail: false };
+    integrationsDB[userId] = { 
+       slack: { connected: false }, 
+       github: { connected: !!process.env.GITHUB_ACCESS_TOKEN, accessToken: process.env.GITHUB_ACCESS_TOKEN || null },
+       postgres: { connected: false },
+       gmail: { connected: false }
+    };
   }
-  res.json({ integrations: integrationsDB[userId] });
+  
+  // Flatten for UI: { slack: true/false }
+  const uiIntegrations = {};
+  Object.keys(integrationsDB[userId]).forEach(key => {
+    uiIntegrations[key] = integrationsDB[userId][key].connected;
+  });
+
+  // System-level global fallback: If we HAVE a token in .env AND the user hasn't connected explicitly
+  if (process.env.GITHUB_ACCESS_TOKEN && integrationsDB[userId].github.accessToken === null) {
+     uiIntegrations.github = true;
+  }
+
+  res.json({ integrations: uiIntegrations });
+};
+
+exports.linkGitHubToken = async (req, res) => {
+  const userId = req.user.id;
+  const { accessToken } = req.body;
+  const sanitizedToken = accessToken?.trim();
+
+  if (!sanitizedToken) {
+     return res.status(400).json({ error: 'GitHub Access Token context is missing.' });
+  }
+
+  try {
+     // Physically validate token against GitHub API boundaries - try standard github 'token' prefix first
+     let response = await fetch('https://api.github.com/user', {
+        headers: {
+           'Authorization': `token ${sanitizedToken}`,
+           'Accept': 'application/vnd.github.v3+json',
+           'User-Agent': 'NexusAI-Platform'
+        }
+     });
+
+     // Fallback to Bearer if token prefix fails (some fine-grained PATs require this)
+     if (!response.ok && response.status === 401) {
+        response = await fetch('https://api.github.com/user', {
+           headers: {
+              'Authorization': `Bearer ${sanitizedToken}`,
+              'Accept': 'application/vnd.github.v3+json',
+              'User-Agent': 'NexusAI-Platform'
+           }
+        });
+     }
+
+     if (!response.ok) {
+        const errorData = await response.json();
+        return res.status(response.status).json({ 
+           error: `GitHub Authentication Terminal Failure: ${errorData.message || 'Access Denied'}`,
+           status: response.status 
+        });
+     }
+
+     const userData = await response.json();
+
+     if (!integrationsDB[userId]) {
+        integrationsDB[userId] = { 
+           slack: { connected: false }, 
+           github: { connected: false, accessToken: null, username: null },
+           postgres: { connected: false },
+           gmail: { connected: false }
+        };
+     }
+
+     integrationsDB[userId].github.accessToken = sanitizedToken;
+     integrationsDB[userId].github.connected = true;
+     integrationsDB[userId].github.username = userData.login;
+
+     res.json({ 
+        success: true, 
+        message: `Successfully mapped GitHub account: ${userData.login}`,
+        username: userData.login
+     });
+
+  } catch (err) {
+     console.error(err);
+     res.status(500).json({ error: 'Failing to establish secure handshake with GitHub API sector. Check Node environment connectivity.' });
+  }
+};
+
+exports.linkGoogleToken = async (req, res) => {
+  const userId = req.user.id;
+  const { accessToken } = req.body;
+  const sanitizedToken = accessToken?.trim();
+
+  if (!sanitizedToken) {
+     return res.status(400).json({ error: 'Google Access Token context is missing.' });
+  }
+
+  try {
+     // Physically validate token against Google API boundaries
+     const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: {
+           'Authorization': `Bearer ${sanitizedToken}`
+        }
+     });
+
+     if (!response.ok) {
+        const errorData = await response.json();
+        return res.status(response.status).json({ 
+           error: `Google Authentication Failure: ${errorData.error_description || 'Invalid Credential'}`,
+           status: response.status 
+        });
+     }
+
+     const userData = await response.json();
+
+     if (!integrationsDB[userId]) {
+        integrationsDB[userId] = { 
+           slack: { connected: false }, 
+           github: { connected: false, accessToken: null },
+           postgres: { connected: false },
+           gmail: { connected: false }
+        };
+     }
+
+     integrationsDB[userId].gmail.accessToken = sanitizedToken;
+     integrationsDB[userId].gmail.connected = true;
+     integrationsDB[userId].gmail.email = userData.email;
+
+     res.json({ 
+        success: true, 
+        message: `Successfully mapped Google Workspace: ${userData.email}`,
+        email: userData.email
+     });
+
+  } catch (err) {
+     console.error(err);
+     res.status(500).json({ error: 'Failing to establish secure handshake with Google API sector.' });
+  }
 };
 
 exports.toggleIntegration = (req, res) => {
   const userId = req.user.id;
   const { integrationId } = req.body;
+  
   if (!integrationsDB[userId]) {
-    integrationsDB[userId] = { slack: true, github: true, postgres: false, gmail: false };
+    integrationsDB[userId] = { 
+       slack: { connected: false }, 
+       github: { connected: !!process.env.GITHUB_ACCESS_TOKEN, accessToken: process.env.GITHUB_ACCESS_TOKEN || null },
+       postgres: { connected: false },
+       gmail: { connected: false }
+    };
   }
+
   if (integrationId in integrationsDB[userId]) {
-    integrationsDB[userId][integrationId] = !integrationsDB[userId][integrationId];
-    res.json({ success: true, integrations: integrationsDB[userId] });
+    integrationsDB[userId][integrationId].connected = !integrationsDB[userId][integrationId].connected;
+    
+    // Flatten for UI sync
+    const uiIntegrations = {};
+    Object.keys(integrationsDB[userId]).forEach(key => {
+      uiIntegrations[key] = integrationsDB[userId][key].connected;
+    });
+
+    res.json({ success: true, integrations: uiIntegrations });
   } else {
     res.status(400).json({ error: 'Integration ID mapping not found.' });
   }
@@ -175,17 +342,16 @@ exports.getAgentDetails = (req, res) => {
   const agent = agentsDB.find(a => a.id === id && a.userId === userId);
   if (!agent) return res.status(404).json({ error: 'Agent unit not found.' });
 
-  const ageSeconds = (new Date() - new Date(agent.createdAt)) / 1000;
-  if (agent.status === 'Initializing' && ageSeconds > 6) {
-    agent.status = 'Active';
-  }
+  // Get REAL logs for this agent unit
+  const agentLogs = logsDB.filter(l => l.agentId === id && l.userId === userId);
 
-  const logs = [
-    { timestamp: new Date(Date.now() - 5000).toISOString(), message: `Initializing ${agent.name}...`, level: 'INFO' },
-    { timestamp: new Date(Date.now() - 3000).toISOString(), message: 'Connected to primary SaaS cluster.', level: 'SUCCESS' },
-    { timestamp: new Date(Date.now()).toISOString(), message: 'Awaiting autonomous task queue...', level: 'PENDING' }
-  ];
+  const logs = agentLogs.length > 0 
+    ? agentLogs.map(l => ({ timestamp: l.timestamp, message: l.result, level: l.type || 'INFO' }))
+    : [
+       { timestamp: new Date(Date.now() - 5000).toISOString(), message: `Initializing ${agent.name}...`, level: 'INFO' },
+       { timestamp: new Date(Date.now() - 3000).toISOString(), message: 'Connected to primary SaaS cluster.', level: 'SUCCESS' },
+       { timestamp: new Date(Date.now()).toISOString(), message: 'Listening for core events...', level: 'PENDING' }
+    ];
 
-  const config = { model: 'nexus-pro-v4', temperature: 0.7, region: 'us-east-1' };
-  res.json({ logs, config });
+  res.json({ logs, config: agent.config });
 };

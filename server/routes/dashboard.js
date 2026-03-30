@@ -18,6 +18,11 @@ router.get('/agents', verifyToken, dashboardController.getActiveAgents);
 // @access  Private
 router.post('/agents', verifyToken, dashboardController.addAgent);
 
+// @route   PATCH /api/dashboard/agents/:id/status
+// @desc    Toggle agent status
+// @access  Private
+router.patch('/agents/:id/status', verifyToken, dashboardController.toggleAgentStatus);
+
 // @route   DELETE /api/dashboard/agents/:id
 // @desc    Delete specified user agent mapped context
 // @access  Private
@@ -39,5 +44,17 @@ router.get('/integrations', verifyToken, dashboardController.getIntegrations);
 // @route   POST /api/dashboard/integrations/toggle
 // @access  Private
 router.post('/integrations/toggle', verifyToken, dashboardController.toggleIntegration);
+
+// @route   GET /api/dashboard/integrations/github/repos
+// @access  Private
+router.get('/integrations/github/repos', verifyToken, dashboardController.getGitHubRepos);
+
+// @route   POST /api/dashboard/integrations/github/link
+// @access  Private
+router.post('/integrations/github/link', verifyToken, dashboardController.linkGitHubToken);
+
+// @route   POST /api/dashboard/integrations/google/link
+// @access  Private
+router.post('/integrations/google/link', verifyToken, dashboardController.linkGoogleToken);
 
 module.exports = router;

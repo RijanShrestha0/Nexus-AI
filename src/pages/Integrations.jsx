@@ -1,9 +1,11 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from '../components/layout/Sidebar';
-import { GitBranch, Hash, Database, Mail, Link as LinkIcon, Loader2 } from 'lucide-react';
+import { GitBranch, Hash, Database, Mail, Link as LinkIcon, Loader2, X, Key, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { useIntegrations } from '../hooks/useIntegrations';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 const integrationsMeta = [
   { id: 'slack', name: 'Slack', desc: 'Allow agents to send alerts and communicate in channels.', icon: Hash },
@@ -14,6 +16,52 @@ const integrationsMeta = [
 
 export function Integrations() {
   const { integrations, toggleConnection, loading } = useIntegrations();
+  const { token } = useAuth();
+  const { addToast } = useToast();
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubTokenInput, setGithubTokenInput] = useState('');
+  const [linkLoading, setLinkLoading] = useState(false);
+
+  const handleManualLink = async () => {
+    if (!githubTokenInput) return;
+    setLinkLoading(true);
+    
+    try {
+      const response = await fetch('http://localhost:5005/api/dashboard/integrations/github/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ accessToken: githubTokenInput })
+      });
+      
+      const data = await response.json();
+
+      if (response.ok) {
+        addToast(data.message || 'GitHub mapping successful!', 'success');
+        setGithubTokenInput('');
+        setShowGithubModal(false);
+        // Refresh the local state
+        window.location.reload(); // Quickest way to sync backend Fallbacks and UI
+      } else {
+        addToast(data.error || 'Validation failed natively.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Critical networking failure during GitHub handshake.', 'error');
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
+  const onToggleClick = (id) => {
+     if (id === 'github' && !integrations.github) {
+        setShowGithubModal(true);
+     } else {
+        toggleConnection(id);
+     }
+  };
 
   return (
     <div className="dashboard-layout">
@@ -24,18 +72,14 @@ export function Integrations() {
             <h1 className="dashboard-title">System Integrations</h1>
             <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem', maxWidth: '600px', lineHeight: 1.5 }}>
               Data boundaries determine how intelligent your agents can be. 
-              Connect external ecosystems and SaaS tools securely using OAuth2 to expand the autonomous capabilities of your platform.
+              Connect external ecosystems and SaaS tools securely to expand your platform.
             </p>
           </div>
         </div>
 
         {loading ? (
           <div style={{ padding: '4rem', display: 'flex', justifyContent: 'center' }}>
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-              style={{ color: 'var(--primary-gradient)' }}
-            >
+            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ color: 'var(--primary-gradient)' }}>
               <Loader2 size={32} />
             </motion.div>
           </div>
@@ -63,10 +107,17 @@ export function Integrations() {
                   </div>
                   <h3 style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>{integration.name}</h3>
                   <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', flex: 1 }}>{integration.desc}</p>
+                  
+                  {integration.id === 'github' && isConnected && (
+                     <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--success)' }}>
+                        <CheckCircle2 size={12} /> Unit successfully mapped to your GitHub environment cluster.
+                     </div>
+                  )}
+
                   <Button 
                     variant={isConnected ? 'outline' : 'primary'} 
                     style={{ width: '100%' }}
-                    onClick={() => toggleConnection(integration.id)}
+                    onClick={() => onToggleClick(integration.id)}
                   >
                     <LinkIcon size={14} style={{ marginRight: '0.5rem' }} />
                     {isConnected ? 'Revoke Access' : 'Authenticate Tool'}
@@ -77,6 +128,58 @@ export function Integrations() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {showGithubModal && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowGithubModal(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)' }} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="dashboard-panel"
+              style={{ width: '100%', maxWidth: '450px', position: 'relative', zIndex: 1001, padding: '2rem' }}
+            >
+              <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+                 <div className="agent-icon" style={{ background: 'var(--primary-gradient)', width: '60px', height: '60px', margin: '0 auto 1.5rem' }}>
+                    <GitBranch size={30} color="white" />
+                 </div>
+                 <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>Link GitHub Account</h2>
+                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Provide a Personal Access Token to map your repositories to autonomous Nexus agents.</p>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>GitHub Access Token</label>
+                 <div style={{ position: 'relative' }}>
+                    <div style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>
+                       <Key size={16} />
+                    </div>
+                    <input 
+                       type="password" 
+                       className="form-input" 
+                       style={{ paddingLeft: '3rem' }} 
+                       placeholder="ghp_xxxxxxxxxxxx" 
+                       value={githubTokenInput}
+                       onChange={(e) => setGithubTokenInput(e.target.value)}
+                    />
+                 </div>
+              </div>
+
+              <div style={{ background: 'rgba(59, 130, 246, 0.05)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: '1.5rem', display: 'flex', gap: '0.75rem' }}>
+                 <AlertCircle size={20} color="#3b82f6" style={{ flexShrink: 0 }} />
+                 <p style={{ fontSize: '0.75rem', color: '#3b82f6', margin: 0 }}>The token will be physically validated against the GitHub API before mapping.</p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                 <Button variant="primary" style={{ flex: 1 }} onClick={handleManualLink} disabled={linkLoading}>
+                    {linkLoading ? <Loader2 size={16} className="animate-spin" /> : 'Map GitHub Context'}
+                 </Button>
+                 <Button variant="ghost" onClick={() => setShowGithubModal(false)}>Cancel</Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -14,7 +14,10 @@ export function useIntegrations() {
   const [loading, setLoading] = useState(true);
 
   const fetchIntegrations = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     try {
       const response = await fetch('http://localhost:5005/api/dashboard/integrations', {
         headers: { 'Authorization': `Bearer ${token}` }

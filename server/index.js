@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { errorHandler } = require('./middleware/error');
+const { startAgentLoop } = require('./services/agentEngine');
 const express = require('express');
 const cors = require('cors');
 
@@ -29,4 +30,7 @@ app.use(errorHandler);
 // Boot Database/Server Link
 app.listen(PORT, () => {
   console.log(`Nexus API Server listening centrally on http://localhost:${PORT}`);
+  
+  // Start the background agent worker engine
+  startAgentLoop();
 });
