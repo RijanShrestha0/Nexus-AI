@@ -88,27 +88,83 @@ async function runAgent(agent) {
       // ── Step 3b: Detect current branch name ──
       let currentBranch = runGitCommand('git rev-parse --abbrev-ref HEAD', absPath) || 'main';
 
-      // ── Step 4: Check for uncommitted changes ──
+      // ── Step 4: Check for uncommitted changes AND unpushed commits ──
       const statusOutput = runGitCommand('git status --porcelain', absPath);
       const hasChanges = statusOutput && statusOutput.length > 0;
+
+      // Check for local commits that haven't been pushed yet
+      let hasUnpushedCommits = false;
+      const localCommitCount = runGitCommand('git rev-list --count HEAD', absPath);
+      if (localCommitCount && parseInt(localCommitCount) > 0) {
+        // Check if upstream is set and if we're ahead
+        const unpushed = runGitCommand('git log --oneline @{u}..HEAD', absPath);
+        if (unpushed === null) {
+          // No upstream tracking set — all local commits are unpushed
+          hasUnpushedCommits = true;
+        } else if (unpushed && unpushed.length > 0) {
+          hasUnpushedCommits = true;
+        }
+      }
 
       // ── Step 5: Enforce 1h45m commit interval ──
       const now = Date.now();
       const lastCommitTime = agent.lastCommitTimestamp || 0;
       const timeSinceLastCommit = now - lastCommitTime;
 
-      if (!hasChanges) {
-        // No changes — send a heartbeat every 10 min so UX stays confident
+      // ── CASE A: Unpushed commits exist (from a previous failed push) ──
+      if (hasUnpushedCommits && !hasChanges) {
+        console.log(`[Repo Sentinel] Unit ${agent.id}: Found unpushed commits. Retrying push...`);
+
+        // If there are also new uncommitted changes, stage and amend
+        if (hasChanges) {
+          runGitCommand('git add -A', absPath);
+          runGitCommand('git commit --amend --no-edit', absPath);
+        }
+
+        // Sync and push
+        if (!agent.initialSyncDone) {
+          console.log(`[Repo Sentinel] First sync — fetching remote and merging histories...`);
+          runGitCommand('git fetch origin', absPath);
+          const remoteBranches = runGitCommand('git branch -r', absPath) || '';
+          if (remoteBranches.includes('origin/main') || remoteBranches.includes('origin/master')) {
+            const remoteBranch = remoteBranches.includes('origin/main') ? 'main' : 'master';
+            runGitCommand(`git pull origin ${remoteBranch} --allow-unrelated-histories --no-edit`, absPath);
+            currentBranch = remoteBranch;
+          }
+          agent.initialSyncDone = true;
+        }
+
+        let pushResult = runGitCommand(`git push -u origin ${currentBranch}`, absPath);
+        if (pushResult === null) {
+          console.warn(`[Repo Sentinel] Normal push failed, attempting force push...`);
+          pushResult = runGitCommand(`git push -u origin ${currentBranch} --force`, absPath);
+          if (pushResult === null) {
+            throw new Error(`Push failed to ${repo}. Check that the repo exists and your PAT has Contents (Read/Write) access.`);
+          }
+        }
+
+        agent.lastCommitTimestamp = now;
+        actionResult = { status: 'push-recovered', branch: currentBranch, repo };
+        logMessage = `Recovered unpushed commits — successfully pushed to ${repo}:${currentBranch}.`;
+      }
+
+      // ── CASE B: No changes and no unpushed commits — idle heartbeat ──
+      else if (!hasChanges && !hasUnpushedCommits) {
         const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
         if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {
           console.log(`[Repo Sentinel] Unit ${agent.id}: No local changes detected in ${absPath}.`);
           return;
         }
-        logMessage = `Repo Sentinel stable. Watching ${absPath} → ${repo} for local file changes. Next commit window in ${Math.max(0, Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000))} min.`;
+        
+        const minsLeft = Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000);
+        let windowMsg = minsLeft > 0 ? `Next window in ${minsLeft} min` : 'Action Window Open: Awaiting file changes for immediate commit.';
+        
+        logMessage = `Repo Sentinel stable. Watching ${absPath} → ${repo} for local file changes. (${windowMsg})`;
         actionResult = { status: 'watching', localPath: absPath, repo };
+      }
 
-      } else if (timeSinceLastCommit < COMMIT_INTERVAL && lastCommitTime > 0) {
-        // Changes exist, but interval hasn't elapsed yet
+      // ── CASE C: Changes exist but interval hasn't elapsed ──
+      else if (hasChanges && timeSinceLastCommit < COMMIT_INTERVAL && lastCommitTime > 0) {
         const minsRemaining = Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000);
         const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
         if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {
@@ -116,9 +172,10 @@ async function runAgent(agent) {
         }
         logMessage = `Changes detected in ${absPath}. Auto-commit scheduled in ${minsRemaining} min (1h45m cycle).`;
         actionResult = { status: 'pending', changesDetected: true, minsRemaining };
+      }
 
-      } else {
-        // ── COMMIT TIME: Stage, commit, and push ──
+      // ── CASE D: Changes exist AND commit interval elapsed — COMMIT + PUSH ──
+      else if (hasChanges) {
         console.log(`[Repo Sentinel] Unit ${agent.id}: Committing changes from ${absPath} to ${repo}...`);
 
         // Stage all changes
@@ -136,28 +193,22 @@ async function runAgent(agent) {
           throw new Error('Git commit failed. There may be nothing to commit after staging.');
         }
 
-        // ── Step 6: Sync with remote before pushing ──
-        // If the remote has existing commits (e.g. auto_init README), we need to
-        // pull first with --allow-unrelated-histories to merge the two histories.
+        // Sync with remote before pushing (first time only)
         if (!agent.initialSyncDone) {
           console.log(`[Repo Sentinel] First sync — fetching remote and merging histories...`);
           runGitCommand('git fetch origin', absPath);
-
-          // Check if remote branch exists
           const remoteBranches = runGitCommand('git branch -r', absPath) || '';
           if (remoteBranches.includes('origin/main') || remoteBranches.includes('origin/master')) {
             const remoteBranch = remoteBranches.includes('origin/main') ? 'main' : 'master';
-            // Pull with allow-unrelated-histories to merge divergent commit trees
             runGitCommand(`git pull origin ${remoteBranch} --allow-unrelated-histories --no-edit`, absPath);
             currentBranch = remoteBranch;
           }
           agent.initialSyncDone = true;
         }
 
-        // Push to remote using detected branch
+        // Push to remote
         let pushResult = runGitCommand(`git push -u origin ${currentBranch}`, absPath);
         if (pushResult === null) {
-          // Fallback: try force push if normal push still fails (e.g. non-fast-forward)
           console.warn(`[Repo Sentinel] Normal push failed, attempting force push...`);
           pushResult = runGitCommand(`git push -u origin ${currentBranch} --force`, absPath);
           if (pushResult === null) {
