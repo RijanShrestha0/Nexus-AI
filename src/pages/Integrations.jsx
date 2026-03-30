@@ -53,7 +53,7 @@ export function Integrations() {
           window.location.reload();
         }, 2000);
       } else {
-        addToast('Native platform handshake failed.', 'error');
+        addToast(data.error || 'Native platform handshake failed.', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -95,7 +95,7 @@ export function Integrations() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
             {integrationsMeta.map((integration, index) => {
               const Icon = integration.icon;
-              const isConnected = integrations[integration.id];
+              const isConnected = integrations[integration.id]?.connected;
               return (
                 <motion.div 
                   key={integration.id}
@@ -117,8 +117,13 @@ export function Integrations() {
                   <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', flex: 1 }}>{integration.desc}</p>
                   
                   {isConnected && (
-                     <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--success)' }}>
-                        <CheckCircle2 size={12} /> Unit successfully bridged to your account cluster.
+                     <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--success)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                           <CheckCircle2 size={12} /> Unit successfully bridged to your account cluster.
+                        </div>
+                        <div style={{ padding: '0.4rem 0.6rem', background: 'rgba(5, 150, 105, 0.05)', borderRadius: '6px', border: '1px solid rgba(5, 150, 105, 0.1)', textAlign: 'left' }}>
+                           Connected as: <span style={{ fontWeight: 600 }}>{integrations[integration.id]?.username || integrations[integration.id]?.email || 'Identity Established'}</span>
+                        </div>
                      </div>
                   )}
 

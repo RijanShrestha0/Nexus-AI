@@ -3,319 +3,271 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Bot, Plus, Search, Database, X, Terminal, Settings as SettingsIcon, Loader2, GitBranch, AlertCircle, Play, Square } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { useAuth } from '../context/AuthContext';
 import { useAgents } from '../hooks/useAgents';
+import { useAuth } from '../context/AuthContext';
 
-const skeletonPulse = {
-  initial: { opacity: 0.4 },
-  animate: { opacity: 0.8, transition: { repeat: Infinity, duration: 1.5, repeatType: "reverse" } }
+const agentTypes = [
+  { id: 'github-monitor', name: 'Repo Sentinel', desc: 'Monitors commit activity and synchronizes platform telemetry.', icon: GitBranch },
+  { id: 'issue-creator', name: 'Issue Architect', desc: 'Identifies environment gaps and autonomously creates GitHub issues.', icon: Terminal },
+  { id: 'repo-creator', name: 'Cloud Provisioner', desc: 'Instantly bootstraps repositories and project infrastructure.', icon: Plus }
+];
+
+// Helper to safely render icons across different browser engines
+const AgentIcon = ({ type, size = 20, style = {} }) => {
+  const typeMatch = agentTypes.find(t => t.id === type);
+  const IconComponent = typeMatch?.icon || Bot;
+  return <IconComponent size={size} style={style} />;
 };
 
 export function Agents() {
   const { token } = useAuth();
   const { agents, loading, createAgent, deleteAgent, getAgentDetails, fetchAgents } = useAgents(token);
-  
   const [showForm, setShowForm] = useState(false);
-  const [formLoading, setFormLoading] = useState(false);
+  const [repoList, setRepoList] = useState([]);
+  const [reposLoading, setReposLoading] = useState(false);
   
-  // New Agent Form State
+  // New Agent State
   const [agentName, setAgentName] = useState('');
   const [agentType, setAgentType] = useState('github-monitor');
-  const [selectedRepo, setSelectedRepo] = useState('');
-  const [issueTitle, setIssueTitle] = useState('');
-  const [repos, setRepos] = useState([]);
-  const [reposLoading, setReposLoading] = useState(false);
+  const [config, setConfig] = useState({ repo: '', issueTitle: '', issueBody: '', repoName: '', repoDesc: '' });
 
-  // Modal State
-  const [activeModal, setActiveModal] = useState(null);
+  // UI Detail State
+  const [selectedAgent, setSelectedAgent] = useState(null);
   const [modalData, setModalData] = useState(null);
-  const [modalLoading, setModalLoading] = useState(false);
+  const [pollingLogs, setPollingLogs] = useState(false);
 
-  // Fetch Repos when form is opened
   useEffect(() => {
     if (showForm && token) {
       setReposLoading(true);
       fetch('http://localhost:5005/api/dashboard/integrations/github/repos', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => res.json())
       .then(data => {
-        if (data.repos) setRepos(data.repos);
+        if (data.repos) setRepoList(data.repos);
       })
-      .catch(console.error)
       .finally(() => setReposLoading(false));
     }
   }, [showForm, token]);
 
-  const handleDeploy = async (e) => {
-    e.preventDefault();
-    if (!agentName || !selectedRepo) return;
-    
-    setFormLoading(true);
-    const config = {
-      repo: selectedRepo,
-      issueTitle: agentType === 'issue-creator' ? issueTitle : undefined
-    };
-    
+  const handleDeploy = async () => {
+    if (!agentName) return;
     await createAgent(agentName, agentType, config);
-    setFormLoading(false);
     setShowForm(false);
-    resetForm();
-  };
-
-  const resetForm = () => {
     setAgentName('');
-    setAgentType('github-monitor');
-    setSelectedRepo('');
-    setIssueTitle('');
+    setConfig({ repo: '', issueTitle: '', issueBody: '', repoName: '', repoDesc: '' });
   };
 
-  const toggleAgentStatus = async (agent) => {
-     const newStatus = agent.status === 'Active' ? 'Inactive' : 'Active';
-     try {
-       await fetch(`http://localhost:5005/api/dashboard/agents/${agent.id}/status`, {
-         method: 'PATCH',
-         headers: { 
-           'Authorization': `Bearer ${token}`,
-           'Content-Type': 'application/json'
-         },
-         body: JSON.stringify({ status: newStatus })
-       });
-       fetchAgents();
-     } catch (err) {
-       console.error(err);
-     }
-  };
-
-  const openModal = async (type, agent) => {
-    setActiveModal({ type, agent });
-    setModalLoading(true);
-    const data = await getAgentDetails(agent.id);
-    setModalData(data);
-    setModalLoading(false);
+  const openAgentDetails = async (agent) => {
+    setSelectedAgent(agent);
+    setPollingLogs(true);
+    const details = await getAgentDetails(agent.id);
+    setModalData(details);
   };
 
   return (
     <div className="dashboard-layout">
       <Sidebar />
       <div className="dashboard-content">
-        <div className="dashboard-header" style={{ marginBottom: '1.5rem' }}>
+        <div className="dashboard-header" style={{ marginBottom: '2rem' }}>
           <div>
             <h1 className="dashboard-title">Autonomous Workforce</h1>
-            <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem', maxWidth: '600px', lineHeight: 1.5 }}>
-              Deploy real AI agents that perform autonomous operations across your GitHub ecosystem.
-            </p>
+            <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Deploy and manage your distributed engineering nodes.</p>
           </div>
-          <Button variant="primary" onClick={() => setShowForm(!showForm)}>
-            <Plus size={16} style={{ marginRight: '0.5rem' }} /> New Deployment
+          <Button variant="primary" onClick={() => setShowForm(true)}>
+            <Plus size={18} style={{ marginRight: '0.5rem' }} />
+            Deploy New Agent
           </Button>
         </div>
 
-        <AnimatePresence>
-          {showForm && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="dashboard-panel"
-              style={{ marginBottom: '2rem', border: '1px solid var(--primary-gradient)' }}
-            >
-              <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Bot size={20} color="var(--primary-gradient)" /> Configure Autonomous Unit
-              </h3>
-              
-              <form onSubmit={handleDeploy} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-                <div className="form-group">
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Agent Identity</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Production Monitor" 
-                    value={agentName}
-                    onChange={(e) => setAgentName(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Unit Action Type</label>
-                  <select 
-                    className="form-input" 
-                    value={agentType} 
-                    onChange={(e) => setAgentType(e.target.value)}
-                    style={{ appearance: 'none' }}
-                  >
-                    <option value="github-monitor">GitHub Commit Monitor</option>
-                    <option value="issue-creator">Automated Issue Creator</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Target Repository</label>
-                  {reposLoading ? (
-                     <div className="form-input" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Loader2 size={14} className="animate-spin" /> Synchronizing clusters...
-                     </div>
-                  ) : (
-                    <select 
-                      className="form-input" 
-                      value={selectedRepo} 
-                      onChange={(e) => setSelectedRepo(e.target.value)}
-                      required
-                    >
-                      <option value="">Select a repository...</option>
-                      {repos.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
-                    </select>
-                  )}
-                </div>
-
-                {agentType === 'issue-creator' && (
-                  <div className="form-group">
-                    <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Global Issue Template</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g. [AUTO] Critical System Check" 
-                      value={issueTitle}
-                      onChange={(e) => setIssueTitle(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                <div style={{ gridColumn: 'span 2', display: 'flex', gap: '1rem', marginTop: '1rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
-                   <Button variant="primary" type="submit" disabled={formLoading}>
-                     {formLoading ? <Loader2 size={16} className="animate-spin" /> : 'Launch Autonomous Node'}
-                   </Button>
-                   <Button variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
-                </div>
-              </form>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="agents-list dashboard-panel">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <h2 className="panel-title" style={{ margin: 0 }}>Active Workforce</h2>
-            <div className="form-input" style={{ width: '250px', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem' }}>
-              <Search size={16} color="var(--text-muted)" />
-              <input type="text" placeholder="Filter nodes..." style={{ background: 'transparent', border: 'none', outline: 'none', color: 'inherit', width: '100%' }} />
-            </div>
+        {loading ? (
+          <div style={{ padding: '4rem', textAlign: 'center' }}>
+            <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--primary-gradient)' }} />
           </div>
-
-          <div className="agents-grid-stack">
-            {loading && agents.length === 0 ? (
-              Array(3).fill(0).map((_, i) => (
-                <div key={i} className="agent-item">
-                  <motion.div {...skeletonPulse} style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(0,0,0,0.05)' }} />
-                  <div style={{ flex: 1 }}>
-                    <motion.div {...skeletonPulse} style={{ width: '120px', height: '14px', background: 'rgba(0,0,0,0.05)', borderRadius: '4px', marginBottom: '6px' }} />
-                    <motion.div {...skeletonPulse} style={{ width: '200px', height: '10px', background: 'rgba(0,0,0,0.05)', borderRadius: '2px' }} />
-                  </div>
-                </div>
-              ))
+        ) : (
+          <div className="agent-grid">
+            {agents.length === 0 ? (
+              <div className="empty-state" style={{ gridColumn: '1 / -1', padding: '4rem' }}>
+                <Bot size={48} />
+                <h3>No Workforce Deployed</h3>
+                <p>Establishing digital engineering boundaries requires your first autonomous unit.</p>
+                <Button variant="ghost" onClick={() => setShowForm(true)} style={{ marginTop: '1rem' }}>Deploy Unit 01</Button>
+              </div>
             ) : (
               <AnimatePresence>
                 {agents.map((agent) => (
                   <motion.div 
                     key={agent.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="agent-item"
-                    style={{ opacity: agent.status === 'Inactive' ? 0.6 : 1 }}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="dashboard-panel agent-card"
+                    onClick={() => openAgentDetails(agent)}
+                    style={{ cursor: 'pointer' }}
                   >
-                    <div className="agent-info">
-                      <div className="agent-icon" style={{ background: agent.status === 'Active' ? 'var(--primary-gradient)' : 'rgba(0,0,0,0.1)' }}>
-                        {agent.type === 'github-monitor' ? <GitBranch size={20} /> : <AlertCircle size={20} />}
+                    <div className="agent-card-header">
+                      <div className="agent-icon">
+                        <AgentIcon type={agent.type} size={24} />
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontWeight: 600, fontSize: '0.9375rem', marginBottom: '0.125rem' }}>{agent.name}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                           <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                             <Database size={12} /> {agent.config?.repo || 'Global'}
-                           </span>
-                           <span style={{ color: agent.status === 'Active' ? 'var(--success)' : 'var(--text-muted)', fontWeight: 600 }}>
-                              {agent.status.toUpperCase()}
-                           </span>
-                        </div>
+                      <div className="agent-status-badge" style={{ background: agent.status === 'Active' ? 'rgba(5, 150, 105, 0.1)' : 'rgba(255, 255, 255, 0.05)', color: agent.status === 'Active' ? 'var(--success)' : 'var(--text-muted)' }}>
+                        <span className={`status-dot ${(agent.status || '').toLowerCase()}`} />
+                        {agent.status || 'Wait...'}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button variant="ghost" size="sm" onClick={() => toggleAgentStatus(agent)} title={agent.status === 'Active' ? 'Pause Node' : 'Resume Node'}>
-                         {agent.status === 'Active' ? <Square size={16} /> : <Play size={16} />}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openModal('logs', agent)}>Telemetry</Button>
-                      <Button variant="outline" size="sm" onClick={() => openModal('config', agent)}>Config</Button>
-                      <Button variant="ghost" size="sm" style={{ color: 'var(--error)' }} onClick={() => deleteAgent(agent.id)}><X size={16} /></Button>
+                    <div className="agent-card-body">
+                      <h3>{agent.name}</h3>
+                      <p className="agent-type-label">{agentTypes.find(t => t.id === agent.type)?.name || agent.type}</p>
+                      <div className="agent-config-summary">
+                        <GitBranch size={12} /> {agent.config.repo || agent.config.repoName || 'Handshaking...'}
+                      </div>
+                    </div>
+                    <div className="agent-card-footer">
+                       <Button variant="ghost" size="small" onClick={(e) => { e.stopPropagation(); deleteAgent(agent.id); }} style={{ color: 'var(--error)' }}>
+                         Terminate
+                       </Button>
                     </div>
                   </motion.div>
                 ))}
               </AnimatePresence>
             )}
-
-            {!loading && agents.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-lg)' }}>
-                <Bot size={40} style={{ marginBottom: '1rem', opacity: 0.5 }} />
-                <p>No autonomous nodes currently deployed in this sector.</p>
-              </div>
-            )}
           </div>
-        </div>
+        )}
       </div>
 
       <AnimatePresence>
-        {activeModal && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActiveModal(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)' }} />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              className="dashboard-panel"
-              style={{ width: '100%', maxWidth: '700px', position: 'relative', zIndex: 1001, maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '0' }}
-            >
-              <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                   <div className="agent-icon" style={{ background: 'var(--primary-gradient)', width: '40px', height: '40px' }}>
-                      {activeModal.type === 'logs' ? <Terminal size={20} /> : <SettingsIcon size={20} />}
-                   </div>
-                   <div>
-                      <h3 style={{ margin: 0, fontSize: '1.125rem' }}>{activeModal.type === 'logs' ? 'Node Telemetry Stream' : 'Unit Architecture'}</h3>
-                      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Unit ID: {activeModal.agent.id}</p>
-                   </div>
-                </div>
-                <button onClick={() => setActiveModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={24} /></button>
-              </div>
+        {showForm && (
+          <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="dashboard-panel form-modal" style={{ width: '100%', maxWidth: '500px', padding: '2rem' }}>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                  <h2 style={{ fontSize: '1.25rem' }}>Platform Unit Deployment</h2>
+                  <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+               </div>
 
-              <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
-                {modalLoading ? (
-                   <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}><Loader2 size={32} className="animate-spin" color="var(--primary-gradient)" /></div>
-                ) : (
-                  activeModal.type === 'logs' ? (
-                    <div style={{ background: '#0a0a0a', color: '#00ff00', padding: '1.5rem', borderRadius: '8px', fontFamily: 'monospace', fontSize: '0.8125rem', border: '1px solid #333', minHeight: '300px' }}>
-                       {modalData?.logs?.length > 0 ? modalData.logs.map((l, i) => (
-                         <div key={i} style={{ marginBottom: '0.5rem', display: 'flex', gap: '1rem' }}>
-                            <span style={{ color: '#666' }}>[{new Date(l.timestamp).toLocaleTimeString()}]</span>
-                            <span style={{ color: l.level === 'ERROR' ? '#ff3b30' : l.level === 'SUCCESS' ? '#4cd964' : 'inherit' }}>{l.message}</span>
-                         </div>
-                       )) : <p>Awaiting node initialization signal...</p>}
-                    </div>
+               <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                  <label className="form-label">Agent Name</label>
+                  <input className="form-input" placeholder="e.g. Sentinel-7" value={agentName} onChange={(e) => setAgentName(e.target.value)} />
+               </div>
+
+               <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                  <label className="form-label">Specialization</label>
+                  <div className="type-selector" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                    {agentTypes.map(t => (
+                        <div 
+                          key={t.id}
+                          className={`type-option ${agentType === t.id ? 'active' : ''}`}
+                          onClick={() => setAgentType(t.id)}
+                          style={{ border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center', cursor: 'pointer', background: agentType === t.id ? 'var(--primary-gradient)' : 'rgba(255,255,255,0.05)', color: agentType === t.id ? 'white' : 'var(--text-primary)' }}
+                        >
+                           <AgentIcon type={t.id} size={20} style={{ margin: '0 auto 0.5rem' }} />
+                           <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{t.name}</span>
+                        </div>
+                    ))}
+                  </div>
+               </div>
+
+               <div className="form-group" style={{ marginBottom: '2rem' }}>
+                  <label className="form-label">Environment Boundary (Repository)</label>
+                  
+                  {agentType === 'repo-creator' ? (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <input className="form-input" placeholder="Initial Repository Name" value={config.repoName} onChange={(e) => setConfig({ ...config, repoName: e.target.value })} />
+                        <textarea className="form-input" placeholder="Blueprint Description" style={{ height: '80px', padding: '0.75rem' }} value={config.repoDesc} onChange={(e) => setConfig({ ...config, repoDesc: e.target.value })} />
+                     </div>
                   ) : (
-                    <div className="config-grid">
-                       <div style={{ background: 'rgba(0,0,0,0.03)', padding: '1.5rem', borderRadius: '12px' }}>
-                          <h4 style={{ marginBottom: '1rem' }}>Dynamic Config Mapping</h4>
-                          <pre style={{ margin: 0, fontSize: '0.875rem' }}>{JSON.stringify(modalData?.config, null, 2)}</pre>
-                       </div>
+                    <div style={{ position: 'relative' }}>
+                       {reposLoading ? (
+                          <div style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Retrieving from GitHub...</div>
+                       ) : (
+                          <select className="form-input" style={{ appearance: 'none' }} value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })}>
+                            <option value="">Select Target Repository</option>
+                            {repoList.map(r => (
+                               <option key={r.id || r.name || r} value={r.name || r}>
+                                  {r.name || r}
+                               </option>
+                            ))}
+                          </select>
+                       )}
                     </div>
-                  )
-                )}
-              </div>
-              
-              <div style={{ padding: '1.5rem', borderTop: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'flex-end' }}>
-                 <Button variant="primary" onClick={() => setActiveModal(null)}>Close Diagnostic</Button>
-              </div>
+                  )}
+               </div>
+
+               <Button variant="primary" style={{ width: '100%' }} onClick={handleDeploy} disabled={!agentName}>
+                  Establish Node Connection
+               </Button>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedAgent && (
+           <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="dashboard-panel detail-modal" style={{ width: '100%', maxWidth: '800px', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                 <div className="detail-modal-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                       <div className="agent-icon" style={{ width: '40px', height: '40px' }}>
+                          <AgentIcon type={selectedAgent.type} size={20} />
+                       </div>
+                       <div>
+                          <h2 style={{ fontSize: '1.125rem' }}>{selectedAgent.name}</h2>
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {selectedAgent.id}</p>
+                       </div>
+                    </div>
+                    <button onClick={() => setSelectedAgent(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={24} /></button>
+                 </div>
+
+                 <div className="detail-modal-content" style={{ display: 'grid', gridTemplateColumns: '1fr 300px', flex: 1, overflow: 'hidden' }}>
+                    <div style={{ padding: '1.5rem', overflowY: 'auto', background: 'rgba(0,0,0,0.2)' }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                          <h3 style={{ fontSize: '0.875rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Telemetry & Activity Log</h3>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                             <span className="status-pulse" /> Live Execution Stream
+                          </span>
+                       </div>
+                       <div className="log-stream" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          {modalData?.logs?.length > 0 ? modalData.logs.map((l, i) => (
+                            <div key={i} className="log-entry" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', borderLeft: `2px solid ${l.level === 'SUCCESS' ? 'var(--success)' : 'var(--primary)'}` }}>
+                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                                  <span style={{ color: 'var(--text-muted)' }}>{new Date(l.timestamp).toLocaleTimeString()}</span>
+                                  <span style={{ fontWeight: 600, color: l.level === 'SUCCESS' ? 'var(--success)' : 'var(--text-primary)' }}>{l.level || 'INFO'}</span>
+                               </div>
+                               <p style={{ margin: 0, fontSize: '0.8125rem', lineHeight: 1.4 }}>{l.message}</p>
+                            </div>
+                          )) : <p>Retrieving heartbeat metrics...</p>}
+                       </div>
+                    </div>
+                    
+                    <div style={{ padding: '1.5rem', borderLeft: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                       <div>
+                          <h4 style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Configuration</h4>
+                          <div className="config-grid" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                             <div className="config-item">
+                                <label style={{ display: 'block', fontSize: '0.625rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>TARGET REPOSITORY</label>
+                                <div style={{ fontSize: '0.875rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                   <GitBranch size={14} /> {selectedAgent.config.repo || selectedAgent.config.repoName}
+                                </div>
+                             </div>
+                             <div className="config-item">
+                                <label style={{ display: 'block', fontSize: '0.625rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>LAST ACTION</label>
+                                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                                   {selectedAgent.lastSeenCommit ? 'Activity Detected' : 'Initializing Handshake'}
+                                </div>
+                             </div>
+                          </div>
+                       </div>
+
+                       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <Button variant={selectedAgent.status === 'Active' ? 'outline' : 'primary'} style={{ width: '100%' }}>
+                             {selectedAgent.status === 'Active' ? <Square size={14} style={{ marginRight: '0.5rem' }} /> : <Play size={14} style={{ marginRight: '0.5rem' }} />}
+                             {selectedAgent.status === 'Active' ? 'Deactivate Node' : 'Activate Node'}
+                          </Button>
+                          <Button variant="ghost" style={{ width: '100%', color: 'var(--error)' }} onClick={() => { deleteAgent(selectedAgent.id); setSelectedAgent(null); }}>
+                             Terminate Execution
+                          </Button>
+                       </div>
+                    </div>
+                 </div>
+              </motion.div>
+           </div>
         )}
       </AnimatePresence>
     </div>

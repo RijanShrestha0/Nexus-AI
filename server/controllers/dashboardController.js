@@ -177,15 +177,20 @@ exports.getIntegrations = (req, res) => {
     };
   }
   
-  // Flatten for UI: { slack: true/false }
+  // Flatten for UI: { slack: { connected: false }, github: { connected: true, username: '...' } }
   const uiIntegrations = {};
   Object.keys(integrationsDB[userId]).forEach(key => {
-    uiIntegrations[key] = integrationsDB[userId][key].connected;
+    uiIntegrations[key] = {
+       connected: integrationsDB[userId][key].connected,
+       username: integrationsDB[userId][key].username,
+       email: integrationsDB[userId][key].email
+    };
   });
 
   // System-level global fallback: If we HAVE a token in .env AND the user hasn't connected explicitly
   if (process.env.GITHUB_ACCESS_TOKEN && integrationsDB[userId].github.accessToken === null) {
-     uiIntegrations.github = true;
+      uiIntegrations.github.connected = true;
+      uiIntegrations.github.username = 'System Default';
   }
 
   res.json({ integrations: uiIntegrations });
@@ -195,16 +200,20 @@ exports.linkGitHubToken = async (req, res) => {
   const userId = req.user.id;
   const { accessToken } = req.body;
   
+  console.log(`[Handshake] Unit ${userId} requesting GitHub platform bridge...`);
+
   // High-Fidelity platform bridge: automatically use the pre-configured system token
   const sanitizedToken = (accessToken === 'internal_platform_session') 
     ? process.env.GITHUB_ACCESS_TOKEN 
     : accessToken?.trim();
 
   if (!sanitizedToken) {
-     return res.status(400).json({ error: 'GitHub Platform Bridge failed: System-level context is missing.' });
+     console.warn(`[Handshake] Bridge rejected: System-level GITHUB_ACCESS_TOKEN is null in environment context.`);
+     return res.status(400).json({ error: 'GitHub Handshake Failed: System-level context is missing. Have you restarted the backend since adding the token?' });
   }
 
   try {
+     console.log(`[Handshake] Physically validating identity cluster against GitHub API...`);
      // physically validate token against GitHub API boundaries - try standard github 'token' prefix first
      let response = await fetch('https://api.github.com/user', {
         headers: {
@@ -348,7 +357,11 @@ exports.toggleIntegration = (req, res) => {
     // Flatten for UI sync
     const uiIntegrations = {};
     Object.keys(integrationsDB[userId]).forEach(key => {
-      uiIntegrations[key] = integrationsDB[userId][key].connected;
+      uiIntegrations[key] = {
+         connected: integrationsDB[userId][key].connected,
+         username: integrationsDB[userId][key].username,
+         email: integrationsDB[userId][key].email
+      };
     });
 
     res.json({ success: true, integrations: uiIntegrations });

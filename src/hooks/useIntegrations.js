@@ -6,10 +6,10 @@ export function useIntegrations() {
   const { token } = useAuth();
   const { addToast } = useToast();
   const [integrations, setIntegrations] = useState({
-    slack: false,
-    github: false,
-    postgres: false,
-    gmail: false
+    slack: { connected: false },
+    github: { connected: false },
+    postgres: { connected: false },
+    gmail: { connected: false }
   });
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +51,7 @@ export function useIntegrations() {
       const data = await response.json();
       if (data.success) {
         setIntegrations(data.integrations);
-        const action = data.integrations[integrationId] ? 'Connected' : 'Disconnected';
+        const action = data.integrations[integrationId]?.connected ? 'Connected' : 'Disconnected';
         addToast(`${integrationId.toUpperCase()} successfully ${action}!`, 'success');
       }
     } catch (error) {

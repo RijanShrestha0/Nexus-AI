@@ -36,3 +36,27 @@ dist/
 build/
 *.bak
 *.tmp
+
+# Secrets and Tokens
+secrets/
+tokens/
+*.secret
+*.token
+*secret.json
+*token.json
+*secrets.json
+*tokens.json
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+credentials.json
+service-account.json
+auth-token*
+access-token*
+api-key*
+
+# Local database
+server/nexus_data.json
