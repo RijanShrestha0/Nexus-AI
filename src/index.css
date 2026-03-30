@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* =========================================
    NEXUS AI - Premium SaaS Landing Page
@@ -7,52 +7,74 @@
 /* Variables - PREMIUM GLASSMORPHISM LIGHT THEME */
 :root {
     --bg-color: #FAFAF9; /* Warm ultra-light stone */
-    --text-primary: #0C0A09; /* Premium dark stone */
-    --text-secondary: #44403C; 
-    --text-muted: #A8A29E; 
+    --body-bg: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+    --text-primary: #0F172A; /* Slate 900 */
+    --text-secondary: #475569; /* Slate 600 */
+    --text-muted: #94A3B8; /* Slate 400 */
     
-    --primary-gradient: linear-gradient(135deg, #CA8A04 0%, #EA580C 100%); /* Gold/Amber */
-    --primary-glow: rgba(202, 138, 4, 0.2);
+    --primary-gradient: linear-gradient(135deg, #6366F1 0%, #A855F7 100%); /* Indigo to Purple */
+    --primary-glow: rgba(99, 102, 241, 0.1);
     
-    --glass-bg: rgba(250, 250, 249, 0.75);
-    --glass-border: rgba(28, 25, 23, 0.08); /* #1C1917 */
-    --glass-hover: rgba(255, 255, 255, 0.95);
+    /* Light Mode Blob Spectrum - Soft & Airy */
+    --blob-1: rgba(99, 102, 241, 0.12);
+    --blob-2: rgba(236, 72, 153, 0.1);
+    --blob-3: rgba(45, 212, 191, 0.08);
+    --blob-4: rgba(245, 158, 11, 0.06);
+    --blob-vignette: radial-gradient(circle at center, transparent 0%, rgba(255, 255, 255, 0.4) 100%);
     
-    --surface-color: #FFFFFF;
-    --surface-light: #F5F5F4;
+    --glass-bg: rgba(255, 255, 255, 0.45);
+    --glass-border: rgba(255, 255, 255, 0.6);
+    --glass-hover: rgba(255, 255, 255, 0.7);
+    
+    --surface-color: rgba(255, 255, 255, 0.5);
+    --surface-light: rgba(255, 255, 255, 0.3);
     
     --success: #059669;
-    --warning: #d97706;
-    --error: #dc2626;
+    --warning: #D97706;
+    --error: #DC2626;
     
     --radius-sm: 8px;
     --radius-md: 16px;
     --radius-lg: 24px;
     --radius-full: 9999px;
+    --label-primary: #173156;
     
-    --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    --transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
+    --font-functional: 'Inter', system-ui, sans-serif;
+    --blur: blur(24px);
 }
 
 /* Variables - PREMIUM GLASSMORPHISM DARK THEME */
 :root.dark {
-    --bg-color: #0C0A09; /* Deep onyx stone */
-    --text-primary: #FAFAF9; /* High contrast text */
-    --text-secondary: #D6D3D1; 
-    --text-muted: #57534E; 
+    --bg-color: #020617; /* Slate 950 */
+    --body-bg: linear-gradient(135deg, #020617 0%, #0F172A 100%);
+    --text-primary: #F8FAFC; /* Slate 50 */
+    --text-secondary: #CBD5E1; /* Slate 300 */
+    --text-muted: #64748B; /* Slate 500 */
     
-    --primary-gradient: linear-gradient(135deg, #CA8A04 0%, #EA580C 100%);
-    --primary-glow: rgba(202, 138, 4, 0.3); /* Lifted glow for dark backgrounds */
+    --primary-gradient: linear-gradient(135deg, #6366F1 0%, #A855F7 100%);
+    --primary-glow: rgba(99, 102, 241, 0.2);
     
-    --glass-bg: rgba(28, 25, 23, 0.75); /* Dark frosted glass */
-    --glass-border: rgba(250, 250, 249, 0.08); /* White sheer border */
-    --glass-hover: rgba(41, 37, 36, 0.95);
+    /* Dark Mode Blob Spectrum - Deep & Intense */
+    --blob-1: rgba(67, 56, 202, 0.5);
+    --blob-2: rgba(190, 24, 93, 0.4);
+    --blob-3: rgba(13, 148, 136, 0.35);
+    --blob-4: rgba(180, 83, 9, 0.25);
+    --blob-vignette: radial-gradient(circle at center, transparent 0%, rgba(2, 6, 17, 0.5) 100%);
     
-    --surface-color: #1C1917; /* Elevated dark chunk */
-    --surface-light: #292524;
+    --glass-bg: rgba(15, 23, 42, 0.45); 
+    --glass-border: rgba(255, 255, 255, 0.1); 
+    --glass-hover: rgba(15, 23, 42, 0.6);
+    
+    --surface-color: rgba(15, 23, 42, 0.4);
+    --surface-light: rgba(255, 255, 255, 0.05);
     
     --success: #10B981; 
     --warning: #F59E0B;
     --error: #EF4444;
+
+    --radius-full: 9999px;
+    --label-primary: #3b82f6; /* Brighter blue for dark mode visibility */
 }
 
 /* Reset & Base */
@@ -67,13 +89,19 @@ html {
 }
 
 body {
-    background-color: var(--bg-color);
+    background: var(--body-bg) fixed;
     color: var(--text-secondary);
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-functional);
     line-height: 1.6;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    transition: background 0.5s ease;
+}
+
+:root.dark body {
+    background: var(--body-bg) fixed;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -621,24 +649,161 @@ a {
     }
 }
 
-.bento-card {
-    padding: 2rem;
+/* Agent UIUX GLASSMORPHISM - Layout */
+.agent-list-vertical {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    position: relative;
-    background: var(--surface-color);
+    gap: 0.75rem;
+    width: 100%;
 }
 
-.interactive {
+.agent-row-minimal {
+    background: var(--glass-bg);
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.5rem;
+    transition: var(--transition);
+    display: grid;
+    grid-template-columns: 48px minmax(200px, 1.5fr) 1fr 140px 100px;
+    align-items: center;
+    gap: 1.5rem;
     cursor: pointer;
-    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
 }
 
-.interactive:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
-    border-color: rgba(15, 23, 42, 0.1);
+.agent-row-minimal:hover {
+    border-color: rgba(255, 255, 255, 0.8);
+    background: var(--glass-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.agent-row-minimal .agent-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-light);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+}
+
+.agent-row-minimal h3 {
+    font-family: var(--font-functional);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.dashboard-sidebar {
+    background: var(--glass-bg);
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
+    border-right: 1px solid var(--glass-border);
+    padding: 2rem 1.5rem;
+    height: 100vh;
+    width: 280px;
+    position: fixed;
+    left: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    z-index: 50;
+}
+
+.dashboard-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.dashboard-content {
+    flex: 1;
+    margin-left: 280px;
+    padding: 2.5rem;
+    position: relative;
+    z-index: 10;
+}
+
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(2%, 4%) scale(1.1); }
+    66% { transform: translate(-3%, -2%) scale(0.9); }
+    100% { transform: translate(0, 0) scale(1); }
+}
+
+.dashboard-header {
+    background: var(--glass-bg);
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
+    border: 1px solid var(--glass-border);
+    padding: 1.5rem 2rem;
+    border-radius: var(--radius-md);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+/* Tooltip Animation System */
+.type-option-parent:hover .spec-tooltip {
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: translateX(-50%) translateY(-2px) !important;
+}
+
+.agent-row-minimal .agent-type-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.agent-status-tag {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 0.15rem 0.6rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    width: fit-content;
+}
+
+.agent-status-tag.active {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10B981;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.agent-status-tag.wait {
+    background: var(--surface-light);
+    color: var(--text-muted);
+    border: 1px solid var(--glass-border);
+}
+
+.agent-row-minimal .repo-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    opacity: 0.8;
+}
+
+.agent-row-minimal .actions-minimal {
+    display: flex;
+    justify-content: flex-end;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.agent-row-minimal:hover .actions-minimal {
+    opacity: 1;
 }
 
 .card-icon {

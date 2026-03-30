@@ -13,26 +13,26 @@ export function useAgents(token) {
     fetch('http://localhost:5005/api/dashboard/agents', {
       headers: { Authorization: `Bearer ${token}` }
     })
-    .then(res => res.json())
-    .then(data => {
-      setAgents(data.agents || []);
-      setLoading(false);
-    })
-    .catch(err => {
-      console.error("Agents fetch error:", err);
-      setLoading(false);
-    });
+      .then(res => res.json())
+      .then(data => {
+        setAgents(data.agents || []);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Agents fetch error:", err);
+        setLoading(false);
+      });
   }, [token]);
 
   useEffect(() => {
     let isMounted = true;
-    
+
     fetchAgents();
-    
+
     const interval = setInterval(() => {
       if (isMounted) fetchAgents();
     }, 8000); // Pulse every 8s for live activity
-    
+
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -43,7 +43,7 @@ export function useAgents(token) {
     try {
       const res = await fetch('http://localhost:5005/api/dashboard/agents', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
@@ -86,6 +86,25 @@ export function useAgents(token) {
       return null;
     }
   };
+  const toggleAgentStatus = async (id, newStatus) => {
+    try {
+      const res = await fetch(`http://localhost:5005/api/dashboard/agents/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        setAgents(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+        return true;
+      }
+    } catch (err) {
+      console.error("Toggle agent status error:", err);
+    }
+    return false;
+  };
 
-  return { agents, loading, createAgent, deleteAgent, getAgentDetails, fetchAgents };
+  return { agents, loading, createAgent, deleteAgent, getAgentDetails, toggleAgentStatus, fetchAgents };
 }

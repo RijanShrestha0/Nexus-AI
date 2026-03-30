@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from '../components/layout/Sidebar';
-import { Bot, Plus, Search, Database, X, Terminal, Settings as SettingsIcon, Loader2, GitBranch, AlertCircle, Play, Square } from 'lucide-react';
+import { Bot, Plus, Search, Database, X, Terminal, Settings as SettingsIcon, Loader2, GitBranch, AlertCircle, Play, Square, Lock, Globe, FolderOpen } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { useAgents } from '../hooks/useAgents';
 import { useAuth } from '../context/AuthContext';
+import { useIntegrations } from '../hooks/useIntegrations';
 
 const agentTypes = [
-  { id: 'github-monitor', name: 'Repo Sentinel', desc: 'Monitors commit activity and synchronizes platform telemetry.', icon: GitBranch },
+  { id: 'github-monitor', name: 'Repo Sentinel', desc: 'Monitors a local directory and auto-commits to GitHub every 1h45m.', icon: GitBranch },
   { id: 'issue-creator', name: 'Issue Architect', desc: 'Identifies environment gaps and autonomously creates GitHub issues.', icon: Terminal },
   { id: 'repo-creator', name: 'Cloud Provisioner', desc: 'Instantly bootstraps repositories and project infrastructure.', icon: Plus }
 ];
@@ -21,7 +22,8 @@ const AgentIcon = ({ type, size = 20, style = {} }) => {
 
 export function Agents() {
   const { token } = useAuth();
-  const { agents, loading, createAgent, deleteAgent, getAgentDetails, fetchAgents } = useAgents(token);
+  const { agents, loading, createAgent, deleteAgent, getAgentDetails, toggleAgentStatus } = useAgents(token);
+  const { integrations, loading: integrationsLoading } = useIntegrations();
   const [showForm, setShowForm] = useState(false);
   const [repoList, setRepoList] = useState([]);
   const [reposLoading, setReposLoading] = useState(false);
@@ -29,15 +31,26 @@ export function Agents() {
   // New Agent State
   const [agentName, setAgentName] = useState('');
   const [agentType, setAgentType] = useState('github-monitor');
-  const [config, setConfig] = useState({ repo: '', issueTitle: '', issueBody: '', repoName: '', repoDesc: '' });
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [config, setConfig] = useState({ repo: '', localPath: '', issueTitle: '', issueBody: '', repoName: '', repoDesc: '' });
 
   // UI Detail State
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [pollingLogs, setPollingLogs] = useState(false);
 
+  // Magic Identity Listener
   useEffect(() => {
-    if (showForm && token) {
+     if (agentName.endsWith('!')) {
+        setIsPrivate(true);
+     } else {
+        // Defaults back to Public if '!' is removed or explicitly '.'
+        setIsPrivate(false);
+     }
+  }, [agentName]);
+
+  useEffect(() => {
+    if (showForm && token && integrations.github?.connected) {
       setReposLoading(true);
       fetch('http://localhost:5005/api/dashboard/integrations/github/repos', {
         headers: { Authorization: `Bearer ${token}` }
@@ -48,14 +61,26 @@ export function Agents() {
       })
       .finally(() => setReposLoading(false));
     }
-  }, [showForm, token]);
+  }, [showForm, token, integrations.github?.connected]);
 
   const handleDeploy = async () => {
     if (!agentName) return;
-    await createAgent(agentName, agentType, config);
+    if (!integrations.github?.connected) {
+       window.location.href = '/integrations';
+       return;
+    }
+    
+    // Physical name hardening: Strip magic identifiers
+    let finalName = agentName;
+    if (finalName.endsWith('.') || finalName.endsWith('!')) {
+       finalName = finalName.slice(0, -1);
+    }
+
+    await createAgent(finalName, agentType, { ...config, private: isPrivate });
     setShowForm(false);
     setAgentName('');
-    setConfig({ repo: '', issueTitle: '', issueBody: '', repoName: '', repoDesc: '' });
+    setIsPrivate(false);
+    setConfig({ repo: '', localPath: '', issueTitle: '', issueBody: '', repoName: '', repoDesc: '' });
   };
 
   const openAgentDetails = async (agent) => {
@@ -85,43 +110,50 @@ export function Agents() {
             <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto', color: 'var(--primary-gradient)' }} />
           </div>
         ) : (
-          <div className="agent-grid">
+          <div className="agent-list-vertical">
             {agents.length === 0 ? (
-              <div className="empty-state" style={{ gridColumn: '1 / -1', padding: '4rem' }}>
-                <Bot size={48} />
-                <h3>No Workforce Deployed</h3>
-                <p>Establishing digital engineering boundaries requires your first autonomous unit.</p>
-                <Button variant="ghost" onClick={() => setShowForm(true)} style={{ marginTop: '1rem' }}>Deploy Unit 01</Button>
+              <div className="empty-state" style={{ padding: '8rem 4rem', textAlign: 'center', border: '1px dashed var(--glass-border)', borderRadius: '8px' }}>
+                <Bot size={40} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>No autonomous units active</h3>
               </div>
             ) : (
               <AnimatePresence>
                 {agents.map((agent) => (
                   <motion.div 
                     key={agent.id}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="dashboard-panel agent-card"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="agent-row-minimal"
                     onClick={() => openAgentDetails(agent)}
-                    style={{ cursor: 'pointer' }}
                   >
-                    <div className="agent-card-header">
-                      <div className="agent-icon">
-                        <AgentIcon type={agent.type} size={24} />
-                      </div>
-                      <div className="agent-status-badge" style={{ background: agent.status === 'Active' ? 'rgba(5, 150, 105, 0.1)' : 'rgba(255, 255, 255, 0.05)', color: agent.status === 'Active' ? 'var(--success)' : 'var(--text-muted)' }}>
-                        <span className={`status-dot ${(agent.status || '').toLowerCase()}`} />
-                        {agent.status || 'Wait...'}
-                      </div>
+                    <div className="agent-icon">
+                      <AgentIcon type={agent.type} size={16} />
                     </div>
-                    <div className="agent-card-body">
+                    
+                    <div>
                       <h3>{agent.name}</h3>
                       <p className="agent-type-label">{agentTypes.find(t => t.id === agent.type)?.name || agent.type}</p>
-                      <div className="agent-config-summary">
-                        <GitBranch size={12} /> {agent.config.repo || agent.config.repoName || 'Handshaking...'}
+                    </div>
+
+                    <div className="repo-meta" style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                         <GitBranch size={12} /> {agent.config.repo || agent.config.repoName || 'System'}
+                       </div>
+                       {agent.type === 'github-monitor' && agent.config.localPath && (
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                           <FolderOpen size={10} /> {agent.config.localPath.length > 30 ? '...' + agent.config.localPath.slice(-27) : agent.config.localPath}
+                         </div>
+                       )}
+                    </div>
+
+                    <div>
+                      <div className={`agent-status-tag ${agent.status === 'Active' ? 'active' : 'wait'}`}>
+                        {agent.status || 'Wait'}
                       </div>
                     </div>
-                    <div className="agent-card-footer">
-                       <Button variant="ghost" size="small" onClick={(e) => { e.stopPropagation(); deleteAgent(agent.id); }} style={{ color: 'var(--error)' }}>
+
+                    <div className="actions-minimal">
+                       <Button variant="ghost" style={{ fontSize: '0.65rem', color: 'var(--error)', padding: '0.2rem 0.5rem' }} onClick={(e) => { e.stopPropagation(); deleteAgent(agent.id); }}>
                          Terminate
                        </Button>
                     </div>
@@ -135,63 +167,174 @@ export function Agents() {
 
       <AnimatePresence>
         {showForm && (
-          <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="dashboard-panel form-modal" style={{ width: '100%', maxWidth: '500px', padding: '2rem' }}>
+          <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="form-modal" style={{ width: '100%', maxWidth: '440px', padding: '2.5rem', background: 'var(--surface-color)', border: '1px solid var(--glass-border)', borderRadius: '12px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                  <h2 style={{ fontSize: '1.25rem' }}>Platform Unit Deployment</h2>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Deploy New Agent</h2>
                   <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
                </div>
 
                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                  <label className="form-label">Agent Name</label>
-                  <input className="form-input" placeholder="e.g. Sentinel-7" value={agentName} onChange={(e) => setAgentName(e.target.value)} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', margin: 0 }}>Identity (Name)</label>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                       <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>Shortcut: . (Pub) / ! (Priv)</span>
+                       <div style={{ display: 'flex', background: 'var(--surface-light)', borderRadius: '4px', padding: '2px', border: '1px solid var(--glass-border)' }}>
+                          <button onClick={() => setIsPrivate(false)} style={{ border: 'none', background: !isPrivate ? 'var(--text-primary)' : 'transparent', color: !isPrivate ? 'var(--bg-color)' : 'var(--text-muted)', fontSize: '0.6rem', padding: '2px 6px', borderRadius: '2px', cursor: 'pointer', transition: 'all 0.2s' }}>Public</button>
+                          <button onClick={() => setIsPrivate(true)} style={{ border: 'none', background: isPrivate ? 'var(--text-primary)' : 'transparent', color: isPrivate ? 'var(--bg-color)' : 'var(--text-muted)', fontSize: '0.6rem', padding: '2px 6px', borderRadius: '2px', cursor: 'pointer', transition: 'all 0.2s' }}>Private</button>
+                       </div>
+                    </div>
+                  </div>
+                  <input 
+                    className="form-input" 
+                    style={{ border: '1px solid var(--glass-border)', background: 'var(--surface-light)', borderRadius: '4px', fontSize: '0.875rem', color: 'var(--text-primary)', width: '100%', padding: '0.75rem' }} 
+                    placeholder="e.g. Sentinel-7. or Sentinel-7!" 
+                    value={agentName} 
+                    onChange={(e) => setAgentName(e.target.value)} 
+                  />
                </div>
 
                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                  <label className="form-label">Specialization</label>
-                  <div className="type-selector" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                  <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', marginBottom: '0.75rem', display: 'block' }}>Specialization</label>
+                  <div className="type-selector-horizontal" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
                     {agentTypes.map(t => (
                         <div 
                           key={t.id}
-                          className={`type-option ${agentType === t.id ? 'active' : ''}`}
+                          className="type-option-parent"
+                          style={{ position: 'relative', display: 'flex' }}
                           onClick={() => setAgentType(t.id)}
-                          style={{ border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center', cursor: 'pointer', background: agentType === t.id ? 'var(--primary-gradient)' : 'rgba(255,255,255,0.05)', color: agentType === t.id ? 'white' : 'var(--text-primary)' }}
                         >
-                           <AgentIcon type={t.id} size={20} style={{ margin: '0 auto 0.5rem' }} />
-                           <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{t.name}</span>
+                           <motion.div 
+                             whileHover={{ y: -2 }}
+                             style={{ 
+                               border: `1px solid ${agentType === t.id ? 'var(--text-primary)' : 'var(--glass-border)'}`, 
+                               padding: '0.75rem', 
+                               borderRadius: 'var(--radius-md)', 
+                               display: 'flex', 
+                               flexDirection: 'column',
+                               alignItems: 'center', 
+                               justifyContent: 'center',
+                               textAlign: 'center',
+                               gap: '0.4rem', 
+                               cursor: 'pointer', 
+                               width: '100%',
+                               minHeight: '84px',
+                               background: agentType === t.id ? 'var(--surface-light)' : 'transparent',
+                               transition: 'border 0.2s, background 0.2s',
+                               opacity: agentType === t.id ? 1 : 0.8
+                             }}
+                           >
+                              <div className="option-icon" style={{ 
+                                width: '32px', height: '32px', borderRadius: '50%', 
+                                background: agentType === t.id ? 'var(--text-primary)' : 'var(--surface-light)', 
+                                color: agentType === t.id ? 'var(--bg-color)' : 'var(--text-primary)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                              }}>
+                                <AgentIcon type={t.id} size={16} />
+                              </div>
+                              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: '1.2' }}>{t.name}</div>
+                           </motion.div>
+
+                           {/* Custom Pro Tooltip - CSS Managed Hover */}
+                           <div className="spec-tooltip" style={{ 
+                             position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', 
+                             background: 'var(--text-primary)', color: 'var(--bg-color)', 
+                             padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.65rem', 
+                             width: 'max-content', maxWidth: '140px', boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
+                             pointerEvents: 'none', transition: 'all 0.2s', zIndex: 10, visibility: 'hidden', opacity: 0
+                           }}>
+                              {t.desc}
+                              <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', border: '5px solid transparent', borderTopColor: 'var(--text-primary)' }} />
+                           </div>
                         </div>
                     ))}
                   </div>
                </div>
 
                <div className="form-group" style={{ marginBottom: '2rem' }}>
-                  <label className="form-label">Environment Boundary (Repository)</label>
+                  <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', marginBottom: '0.5rem', display: 'block' }}>Boundary (Configuration)</label>
                   
-                  {agentType === 'repo-creator' ? (
-                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <input className="form-input" placeholder="Initial Repository Name" value={config.repoName} onChange={(e) => setConfig({ ...config, repoName: e.target.value })} />
-                        <textarea className="form-input" placeholder="Blueprint Description" style={{ height: '80px', padding: '0.75rem' }} value={config.repoDesc} onChange={(e) => setConfig({ ...config, repoDesc: e.target.value })} />
+                  {!integrations.github?.connected ? (
+                     <div style={{ padding: '1.5rem', background: 'var(--surface-light)', borderRadius: '12px', border: '1px dashed var(--glass-border)', textAlign: 'center' }}>
+                        <GitBranch size={24} style={{ margin: '0 auto 0.75rem', color: 'var(--label-primary)', opacity: 0.5 }} />
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Connect your GitHub cluster to enable node configuration.</p>
+                        <Button variant="outline" style={{ width: '100%', fontSize: '0.75rem' }} onClick={() => window.location.href = '/integrations'}>
+                           Connect GitHub Connection
+                        </Button>
                      </div>
+                  ) : agentType === 'repo-creator' ? (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.75rem', background: 'var(--surface-light)', borderRadius: '4px', border: '1px solid var(--glass-border)', marginBottom: '0.4rem' }}>
+                           {isPrivate ? <Lock size={14} color="#f59e0b" /> : <Globe size={14} color="#10b981" />}
+                           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: isPrivate ? '#f59e0b' : '#10b981' }}>{isPrivate ? 'PRIVATE REPOSITORY' : 'PUBLIC REPOSITORY'}</span>
+                        </div>
+                        <input className="form-input" style={{ border: '1px solid var(--glass-border)', background: 'var(--surface-light)', borderRadius: '4px', fontSize: '0.875rem', color: 'var(--text-primary)', width: '100%', padding: '0.75rem' }} placeholder="Repository Name" value={config.repoName} onChange={(e) => setConfig({ ...config, repoName: e.target.value })} />
+                        <textarea className="form-input" style={{ border: '1px solid var(--glass-border)', background: 'var(--surface-light)', borderRadius: '4px', fontSize: '0.875rem', color: 'var(--text-primary)', width: '100%', height: '80px', padding: '0.75rem' }} placeholder="Blueprint Description" value={config.repoDesc} onChange={(e) => setConfig({ ...config, repoDesc: e.target.value })} />
+                     </div>
+                  ) : agentType === 'github-monitor' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                       <div>
+                         <label style={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.35rem', display: 'block' }}>Target Repository</label>
+                         {reposLoading ? (
+                            <div style={{ padding: '0.75rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Retrieving Platform Cluster...</div>
+                         ) : (
+                            <div style={{ position: 'relative' }}>
+                              <select className="form-input" style={{ appearance: 'none', border: '1px solid var(--glass-border)', background: 'var(--surface-light)', borderRadius: '4px', fontSize: '0.875rem', color: 'var(--text-primary)', width: '100%', cursor: 'pointer', padding: '0.75rem' }} value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })}>
+                                <option value="">Select Target Repository</option>
+                                {repoList.map(r => (
+                                   <option key={r.id || r.name || r} value={r.name || r}>
+                                      {r.name || r}
+                                   </option>
+                                ))}
+                              </select>
+                              <div style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5, color: 'var(--text-primary)' }}>
+                                 <Search size={14} />
+                              </div>
+                            </div>
+                         )}
+                       </div>
+                       <div>
+                         <label style={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.35rem', display: 'block' }}>Local Directory (File Path)</label>
+                         <div style={{ position: 'relative' }}>
+                           <input
+                             className="form-input"
+                             style={{ border: '1px solid var(--glass-border)', background: 'var(--surface-light)', borderRadius: '4px', fontSize: '0.875rem', color: 'var(--text-primary)', width: '100%', padding: '0.75rem', paddingLeft: '2.25rem' }}
+                             placeholder="/Users/you/Projects/my-app"
+                             value={config.localPath}
+                             onChange={(e) => setConfig({ ...config, localPath: e.target.value })}
+                           />
+                           <FolderOpen size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                         </div>
+                         <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.5 }}>
+                           The Sentinel will watch this directory for changes and auto-commit to the target repo every <strong>1h 45min</strong>.
+                         </p>
+                       </div>
+                    </div>
                   ) : (
                     <div style={{ position: 'relative' }}>
                        {reposLoading ? (
-                          <div style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Retrieving from GitHub...</div>
+                          <div style={{ padding: '0.75rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Retrieving Platform Cluster...</div>
                        ) : (
-                          <select className="form-input" style={{ appearance: 'none' }} value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })}>
-                            <option value="">Select Target Repository</option>
-                            {repoList.map(r => (
-                               <option key={r.id || r.name || r} value={r.name || r}>
-                                  {r.name || r}
-                               </option>
-                            ))}
-                          </select>
+                          <div style={{ position: 'relative' }}>
+                            <select className="form-input" style={{ appearance: 'none', border: '1px solid var(--glass-border)', background: 'var(--surface-light)', borderRadius: '4px', fontSize: '0.875rem', color: 'var(--text-primary)', width: '100%', cursor: 'pointer', padding: '0.75rem' }} value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })}>
+                              <option value="">Select Target Repository</option>
+                              {repoList.map(r => (
+                                 <option key={r.id || r.name || r} value={r.name || r}>
+                                    {r.name || r}
+                                 </option>
+                              ))}
+                            </select>
+                            <div style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5, color: 'var(--text-primary)' }}>
+                               <Search size={14} />
+                            </div>
+                          </div>
                        )}
                     </div>
                   )}
                </div>
 
-               <Button variant="primary" style={{ width: '100%' }} onClick={handleDeploy} disabled={!agentName}>
-                  Establish Node Connection
+               <Button variant="primary" style={{ width: '100%', borderRadius: '6px', padding: '0.75rem' }} onClick={handleDeploy} disabled={!agentName || (!integrations.github?.connected && agentType !== 'repo-creator')}>
+                  {integrations.github?.connected ? 'Establish Node Connection' : 'Check Cluster Status'}
                </Button>
             </motion.div>
           </div>
@@ -229,7 +372,7 @@ export function Agents() {
                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
                                   <span style={{ color: 'var(--text-muted)' }}>{new Date(l.timestamp).toLocaleTimeString()}</span>
                                   <span style={{ fontWeight: 600, color: l.level === 'SUCCESS' ? 'var(--success)' : 'var(--text-primary)' }}>{l.level || 'INFO'}</span>
-                               </div>
+                                </div>
                                <p style={{ margin: 0, fontSize: '0.8125rem', lineHeight: 1.4 }}>{l.message}</p>
                             </div>
                           )) : <p>Retrieving heartbeat metrics...</p>}
@@ -256,7 +399,17 @@ export function Agents() {
                        </div>
 
                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                          <Button variant={selectedAgent.status === 'Active' ? 'outline' : 'primary'} style={{ width: '100%' }}>
+                          <Button 
+                             variant={selectedAgent.status === 'Active' ? 'outline' : 'primary'} 
+                             style={{ width: '100%' }}
+                             onClick={async () => {
+                                const nextStatus = selectedAgent.status === 'Active' ? 'Inactive' : 'Active';
+                                const success = await toggleAgentStatus(selectedAgent.id, nextStatus);
+                                if (success) {
+                                   setSelectedAgent(prev => ({ ...prev, status: nextStatus }));
+                                }
+                             }}
+                          >
                              {selectedAgent.status === 'Active' ? <Square size={14} style={{ marginRight: '0.5rem' }} /> : <Play size={14} style={{ marginRight: '0.5rem' }} />}
                              {selectedAgent.status === 'Active' ? 'Deactivate Node' : 'Activate Node'}
                           </Button>

@@ -19,17 +19,23 @@ export function Integrations() {
   const { token } = useAuth();
   const { addToast } = useToast();
   
-  // High-Fidelity Connection Auth State
+   // High-Fidelity Connection Auth State
   const [activeAuth, setActiveAuth] = useState(null); // 'github' | 'gmail'
+  const [manualToken, setManualToken] = useState('');
   const [authStep, setAuthStep] = useState(1);
   const [authLoading, setAuthLoading] = useState(false);
 
   const startAuthorization = (id) => {
     setActiveAuth(id);
     setAuthStep(1);
+    setManualToken('');
   };
 
   const handleNativeLink = async () => {
+    if (activeAuth === 'github' && !manualToken) {
+      addToast('Please provide a valid GitHub Access Token.', 'error');
+      return;
+    }
     setAuthLoading(true);
     
     // Determine mapping endpoint
@@ -43,11 +49,16 @@ export function Integrations() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ accessToken: 'internal_platform_session' }) // Handled by backend fallback
+        body: JSON.stringify({ 
+          accessToken: activeAuth === 'github' ? manualToken : 'internal_platform_session' 
+        })
       });
+      
+      const data = await response.json();
       
       if (response.ok) {
         setAuthStep(2); // Success step
+        addToast(`Successfully bridged ${activeAuth} node.`, 'success');
         setTimeout(() => {
           setActiveAuth(null);
           window.location.reload();
@@ -64,7 +75,7 @@ export function Integrations() {
   };
 
   const onToggleClick = (id) => {
-     if ((id === 'github' || id === 'gmail') && !integrations[id]) {
+     if ((id === 'github' || id === 'gmail') && !integrations[id]?.connected) {
         startAuthorization(id);
      } else {
         toggleConnection(id);
@@ -166,13 +177,30 @@ export function Integrations() {
                    </div>
                    
                    <h2 style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>Authorize Platform Connection</h2>
-                   <p style={{ fontSize: '0.9375rem', color: 'var(--text-secondary)', marginBottom: '2rem', lineHeight: 1.6 }}>
-                      Nexus AI is requesting permission to securely bridge to your <strong>{activeAuth === 'github' ? 'GitHub' : 'Google Workspace'}</strong> environment. No manual tokens are required for this native handshake.
+                   <p style={{ fontSize: '0.9375rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+                      Nexus AI is requesting permission to securely bridge to your <strong>{activeAuth === 'github' ? 'GitHub' : 'Google Workspace'}</strong> environment.
                    </p>
+
+                   {activeAuth === 'github' && (
+                      <div className="form-group" style={{ textAlign: 'left', marginBottom: '1.5rem' }}>
+                         <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', marginBottom: '0.5rem', display: 'block' }}>Personal Access Token (PAT)</label>
+                         <input 
+                           type="password"
+                           className="form-input" 
+                           placeholder="github_pat_..." 
+                           value={manualToken} 
+                           onChange={(e) => setManualToken(e.target.value)} 
+                           style={{ width: '100%', padding: '0.75rem', background: 'var(--surface-light)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)' }}
+                         />
+                         <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                            Ensure your token has <strong>repo</strong> permissions for node deployment.
+                         </p>
+                      </div>
+                   )}
 
                    <div style={{ background: 'rgba(59, 130, 246, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.1)', marginBottom: '2rem', display: 'flex', gap: '0.75rem', textAlign: 'left' }}>
                       <ShieldCheck size={20} color="#3b82f6" style={{ flexShrink: 0 }} />
-                      <p style={{ fontSize: '0.8125rem', color: '#3b82f6', margin: 0 }}>This is a <strong>Secure Native Bridge</strong>. Your credentials are encrypted and never leave the system context.</p>
+                      <p style={{ fontSize: '0.8125rem', color: '#3b82f6', margin: 0 }}>This is a <strong>Secure Native Bridge</strong>. Your credentials are encrypted and stored within your private session workspace.</p>
                    </div>
 
                    <div style={{ display: 'flex', gap: '1rem' }}>

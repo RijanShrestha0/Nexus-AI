@@ -1,14 +1,34 @@
 const { agentsDB, logsDB, integrationsDB } = require('../models/database');
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Nexus AI Agent Execution Engine
  * Natively executes real-world actions for autonomous nodes.
+ * 
+ * Repo Sentinel: Monitors a LOCAL file directory and auto-commits & pushes
+ *                to a specified GitHub repo every 1h45m.
  */
+
+const COMMIT_INTERVAL = 105 * 60 * 1000; // 1 hour 45 minutes in ms
+
+/**
+ * Runs a shell command in the given directory and returns stdout.
+ * Returns null on failure.
+ */
+function runGitCommand(cmd, cwd) {
+  try {
+    return execSync(cmd, { cwd, encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch (err) {
+    console.error(`[Git] Command failed in ${cwd}: ${cmd}\n  → ${err.stderr?.trim() || err.message}`);
+    return null;
+  }
+}
 
 async function runAgent(agent) {
   const userId = agent.userId;
   const userIntegrations = integrationsDB[userId];
-  // Secure fallback to system-level token if user-specific token is uninitialized
   const githubToken = userIntegrations?.github?.accessToken || process.env.GITHUB_ACCESS_TOKEN;
 
   if (!githubToken) {
@@ -17,44 +37,157 @@ async function runAgent(agent) {
   }
 
   try {
-    const { repo, issueTitle, issueBody } = agent.config || {};
+    const { repo, issueTitle, issueBody, localPath } = agent.config || {};
     let actionResult = null;
     let logMessage = '';
 
+    const tokenSegment = githubToken.substring(0, 8);
+    console.log(`[Agent Engine] Unit ${agent.id} executing with token [${tokenSegment}...] on ${repo || 'N/A'}`);
+
+    // ─────────────────────────────────────────────────────────────────
+    // REPO SENTINEL — Local Filesystem Monitor + Auto-Commit
+    // ─────────────────────────────────────────────────────────────────
     if (agent.type === 'github-monitor') {
-      // Fetch latest commits
-      const response = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=5`, {
-        headers: {
-          'Authorization': `Bearer ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'NexusAI-Agent'
+      if (!repo) throw new Error("Missing 'repo' (target repository) for Repo Sentinel.");
+      if (!localPath) throw new Error("Missing 'localPath' (local directory) for Repo Sentinel.");
+
+      // Validate directory exists
+      if (!fs.existsSync(localPath)) {
+        throw new Error(`Local directory does not exist: ${localPath}`);
+      }
+
+      const absPath = path.resolve(localPath);
+
+      // ── Step 1: Initialize git repo if not already ──
+      const gitDir = path.join(absPath, '.git');
+      if (!fs.existsSync(gitDir)) {
+        console.log(`[Repo Sentinel] Initializing git repo in ${absPath}...`);
+        runGitCommand('git init', absPath);
+        runGitCommand('git branch -M main', absPath);
+      }
+
+      // ── Step 2: Ensure remote is set to user's repo ──
+      const githubUsername = userIntegrations?.github?.username || 'user';
+      const remoteUrl = `https://${githubUsername}:${githubToken}@github.com/${repo}.git`;
+
+      const existingRemote = runGitCommand('git remote get-url origin', absPath);
+      if (!existingRemote) {
+        runGitCommand(`git remote add origin ${remoteUrl}`, absPath);
+      } else {
+        // Always update remote to ensure token is fresh & repo target is correct
+        runGitCommand(`git remote set-url origin ${remoteUrl}`, absPath);
+      }
+
+      // ── Step 3: Configure git user for commits ──
+      const configuredEmail = runGitCommand('git config user.email', absPath);
+      if (!configuredEmail) {
+        runGitCommand(`git config user.email "nexus-ai@sentinel.local"`, absPath);
+        runGitCommand(`git config user.name "Nexus AI Sentinel"`, absPath);
+      }
+
+      // ── Step 3b: Detect current branch name ──
+      let currentBranch = runGitCommand('git rev-parse --abbrev-ref HEAD', absPath) || 'main';
+
+      // ── Step 4: Check for uncommitted changes ──
+      const statusOutput = runGitCommand('git status --porcelain', absPath);
+      const hasChanges = statusOutput && statusOutput.length > 0;
+
+      // ── Step 5: Enforce 1h45m commit interval ──
+      const now = Date.now();
+      const lastCommitTime = agent.lastCommitTimestamp || 0;
+      const timeSinceLastCommit = now - lastCommitTime;
+
+      if (!hasChanges) {
+        // No changes — send a heartbeat every 10 min so UX stays confident
+        const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
+        if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {
+          console.log(`[Repo Sentinel] Unit ${agent.id}: No local changes detected in ${absPath}.`);
+          return;
         }
-      });
-      
-      if (!response.ok) throw new Error(`GitHub API Error: ${response.status} ${response.statusText}`);
-      
-      const commits = await response.json();
-      const latestSha = commits[0]?.sha;
+        logMessage = `Repo Sentinel stable. Watching ${absPath} → ${repo} for local file changes. Next commit window in ${Math.max(0, Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000))} min.`;
+        actionResult = { status: 'watching', localPath: absPath, repo };
 
-      // Smart Deduplication: Only log if a new event (commit) is detected
-      if (agent.lastSeenCommit === latestSha) {
-         console.log(`[Agent Engine] Unit ${agent.id} report: No new activity detected in ${repo}.`);
-         return; 
+      } else if (timeSinceLastCommit < COMMIT_INTERVAL && lastCommitTime > 0) {
+        // Changes exist, but interval hasn't elapsed yet
+        const minsRemaining = Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000);
+        const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
+        if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {
+          return;
+        }
+        logMessage = `Changes detected in ${absPath}. Auto-commit scheduled in ${minsRemaining} min (1h45m cycle).`;
+        actionResult = { status: 'pending', changesDetected: true, minsRemaining };
+
+      } else {
+        // ── COMMIT TIME: Stage, commit, and push ──
+        console.log(`[Repo Sentinel] Unit ${agent.id}: Committing changes from ${absPath} to ${repo}...`);
+
+        // Stage all changes
+        runGitCommand('git add -A', absPath);
+
+        // Generate a smart commit message
+        const changedFiles = statusOutput.split('\n').filter(l => l.trim());
+        const fileCount = changedFiles.length;
+        const timestamp = new Date().toLocaleString();
+        const commitMsg = `nexus: auto-sync ${fileCount} file(s) — ${timestamp}`;
+
+        // Commit
+        const commitResult = runGitCommand(`git commit -m "${commitMsg}"`, absPath);
+        if (!commitResult) {
+          throw new Error('Git commit failed. There may be nothing to commit after staging.');
+        }
+
+        // ── Step 6: Sync with remote before pushing ──
+        // If the remote has existing commits (e.g. auto_init README), we need to
+        // pull first with --allow-unrelated-histories to merge the two histories.
+        if (!agent.initialSyncDone) {
+          console.log(`[Repo Sentinel] First sync — fetching remote and merging histories...`);
+          runGitCommand('git fetch origin', absPath);
+
+          // Check if remote branch exists
+          const remoteBranches = runGitCommand('git branch -r', absPath) || '';
+          if (remoteBranches.includes('origin/main') || remoteBranches.includes('origin/master')) {
+            const remoteBranch = remoteBranches.includes('origin/main') ? 'main' : 'master';
+            // Pull with allow-unrelated-histories to merge divergent commit trees
+            runGitCommand(`git pull origin ${remoteBranch} --allow-unrelated-histories --no-edit`, absPath);
+            currentBranch = remoteBranch;
+          }
+          agent.initialSyncDone = true;
+        }
+
+        // Push to remote using detected branch
+        let pushResult = runGitCommand(`git push -u origin ${currentBranch}`, absPath);
+        if (pushResult === null) {
+          // Fallback: try force push if normal push still fails (e.g. non-fast-forward)
+          console.warn(`[Repo Sentinel] Normal push failed, attempting force push...`);
+          pushResult = runGitCommand(`git push -u origin ${currentBranch} --force`, absPath);
+          if (pushResult === null) {
+            throw new Error(`Push failed to ${repo}. Check that the repo exists and your PAT has Contents (Read/Write) access.`);
+          }
+        }
+
+        // Record success
+        agent.lastCommitTimestamp = now;
+        actionResult = { 
+          status: 'committed', 
+          filesChanged: fileCount, 
+          commitMessage: commitMsg,
+          branch: currentBranch,
+          repo 
+        };
+        logMessage = `Auto-committed ${fileCount} file(s) to ${repo}:${currentBranch} — "${commitMsg}"`;
       }
+    }
 
-      agent.lastSeenCommit = latestSha;
-      actionResult = { count: commits.length, latest: commits[0]?.commit?.message, sha: latestSha };
-      logMessage = `Synced ${commits.length} latest commits from ${repo}. Latest: "${commits[0]?.commit?.message.substring(0, 30)}..."`;
-    } 
-    
+    // ─────────────────────────────────────────────────────────────────
+    // ISSUE ARCHITECT — Create GitHub Issues
+    // ─────────────────────────────────────────────────────────────────
     else if (agent.type === 'issue-creator') {
-      // Prevent issue spam: check if this specific issue was already established
+      if (!repo) throw new Error("Missing 'repo' parameter for Issue Architect.");
+
       if (agent.lastActionTimestamp && (Date.now() - agent.lastActionTimestamp < 600000)) {
-         // Cool-down: Only 1 issue per 10 minutes per agent
-         return; 
+        return; 
       }
 
-      // Create a GitHub issue
       const response = await fetch(`https://api.github.com/repos/${repo}/issues`, {
         method: 'POST',
         headers: {
@@ -77,10 +210,13 @@ async function runAgent(agent) {
       logMessage = `Successfully created GitHub issue: "${issue.title}" in ${repo}.`;
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // CLOUD PROVISIONER — Create GitHub Repositories
+    // ─────────────────────────────────────────────────────────────────
     else if (agent.type === 'repo-creator') {
       const { repoName, repoDesc } = agent.config || {};
+      const isPrivate = agent.config.private === true;
       
-      // One-shot: prevent creating the same repo multiple times
       if (agent.lastActionTimestamp) return;
 
       const response = await fetch(`https://api.github.com/user/repos`, {
@@ -94,6 +230,7 @@ async function runAgent(agent) {
         body: JSON.stringify({
            name: repoName || `nexus-autonomous-${Date.now()}`,
            description: repoDesc || 'This repository was provisioned by a Nexus AI Autonomous Agent.',
+           private: isPrivate,
            auto_init: true
         })
       });
@@ -105,35 +242,36 @@ async function runAgent(agent) {
       
       const newRepo = await response.json();
       agent.lastActionTimestamp = Date.now();
-      // Optional: Pause agent after success to prevent loop attempts (since it's a one-shot action)
       agent.status = 'Inactive'; 
       
       actionResult = { id: newRepo.id, url: newRepo.html_url, name: newRepo.full_name };
       logMessage = `Provisioned new GitHub repository: ${newRepo.full_name}. Agent unit completing lifecycle.`;
     }
 
-    // Capture execution telemetry
-    logsDB.push({
-      id: 'log_' + Math.random().toString(36).substr(2, 9),
-      agentId: agent.id,
-      userId: agent.userId,
-      timestamp: new Date().toISOString(),
-      action: agent.type,
-      result: logMessage,
-      data: actionResult
-    });
-
-    console.log(`[Agent Engine] Unit ${agent.id} execution successful: ${logMessage}`);
+    // Only log if we have something to report
+    if (logMessage) {
+      logsDB.push({
+        id: 'log_' + Math.random().toString(36).substr(2, 9),
+        agentId: agent.id,
+        userId: agent.userId,
+        timestamp: new Date().toISOString(),
+        action: agent.type,
+        result: logMessage,
+        data: actionResult
+      });
+      console.log(`[Agent Engine] Unit ${agent.id} execution successful: ${logMessage}`);
+    }
 
   } catch (error) {
-    console.error(`[Agent Engine] Unit ${agent.id} terminal failure:`, error.message);
+    const errorDetails = error.cause ? ` (${error.cause.code || error.cause.message})` : "";
+    console.error(`[Agent Engine] Unit ${agent.id} terminal failure:`, error.message + errorDetails);
     logsDB.push({
       id: 'log_' + Math.random().toString(36).substr(2, 9),
       agentId: agent.id,
       userId: agent.userId,
       timestamp: new Date().toISOString(),
       action: agent.type,
-      result: `Execution failed: ${error.message}`,
+      result: `Execution failed: ${error.message}${errorDetails}`,
       type: 'ERROR'
     });
   }
@@ -144,19 +282,19 @@ async function runAgent(agent) {
  * Orchestrates the heartbeats of all active nodes.
  */
 function startAgentLoop() {
-  console.log('[Agent Engine] Initializing Nexus Autonomy Loop (Interval: 15s)...');
+  console.log('[Agent Engine] Initializing Nexus Autonomy Loop (Interval: 30s)...');
   
   setInterval(async () => {
     const activeAgents = agentsDB.filter(a => a.status === 'Active');
     
     if (activeAgents.length === 0) return;
     
-    console.log(`[Agent Engine] Processing ${activeAgents.length} active autonomous units...`);
+    console.log(`[Agent Engine] Core cycle processing ${activeAgents.length} active autonomous units...`);
     
     for (const agent of activeAgents) {
       await runAgent(agent);
     }
-  }, 15000); // 15-second core cycle
+  }, 30000); // 30-second core cycle
 }
 
 module.exports = { startAgentLoop };

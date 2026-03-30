@@ -13,12 +13,14 @@ import { Settings } from './pages/Settings';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
+import { AmbientBackground } from './components/ui/AmbientBackground';
 
 export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
+          <AmbientBackground />
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
