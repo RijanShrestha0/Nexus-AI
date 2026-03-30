@@ -387,5 +387,5 @@ exports.getAgentDetails = (req, res) => {
        { timestamp: new Date(Date.now()).toISOString(), message: 'Listening for core events...', level: 'PENDING' }
     ];
 
-  res.json({ logs, config: agent.config });
+  res.json({ logs, config: agent.config, lastCommitTimestamp: agent.lastCommitTimestamp });
 };

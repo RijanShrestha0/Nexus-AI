@@ -26,6 +26,7 @@ function runGitCommand(cmd, cwd) {
   }
 }
 
+
 async function runAgent(agent) {
   const userId = agent.userId;
   const userIntegrations = integrationsDB[userId];
@@ -67,8 +68,8 @@ async function runAgent(agent) {
       }
 
       // ── Step 2: Ensure remote is set to user's repo ──
-      const githubUsername = userIntegrations?.github?.username || 'user';
-      const remoteUrl = `https://${githubUsername}:${githubToken}@github.com/${repo}.git`;
+      // Use clean token auth to prevent username mismatch errors on push
+      const remoteUrl = `https://x-access-token:${githubToken}@github.com/${repo}.git`;
 
       const existingRemote = runGitCommand('git remote get-url origin', absPath);
       if (!existingRemote) {
@@ -110,6 +111,7 @@ async function runAgent(agent) {
       const now = Date.now();
       const lastCommitTime = agent.lastCommitTimestamp || 0;
       const timeSinceLastCommit = now - lastCommitTime;
+      const isFirstCommit = lastCommitTime === 0;
 
       // ── CASE A: Unpushed commits exist (from a previous failed push) ──
       if (hasUnpushedCommits && !hasChanges) {
@@ -164,7 +166,7 @@ async function runAgent(agent) {
       }
 
       // ── CASE C: Changes exist but interval hasn't elapsed ──
-      else if (hasChanges && timeSinceLastCommit < COMMIT_INTERVAL && lastCommitTime > 0) {
+      else if (hasChanges && !isFirstCommit && timeSinceLastCommit < COMMIT_INTERVAL) {
         const minsRemaining = Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000);
         const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
         if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {

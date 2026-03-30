@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from '../components/layout/Sidebar';
-import { Bot, Plus, Search, Database, X, Terminal, Settings as SettingsIcon, Loader2, GitBranch, AlertCircle, Play, Square, Lock, Globe, FolderOpen } from 'lucide-react';
+import { Bot, Plus, Search, Database, X, Terminal, Settings as SettingsIcon, Loader2, GitBranch, AlertCircle, Play, Square, Lock, Globe, FolderOpen, Clock } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { useAgents } from '../hooks/useAgents';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,42 @@ const AgentIcon = ({ type, size = 20, style = {} }) => {
   const typeMatch = agentTypes.find(t => t.id === type);
   const IconComponent = typeMatch?.icon || Bot;
   return <IconComponent size={size} style={style} />;
+};
+
+const NextCommitCountdown = ({ lastCommitTimestamp }) => {
+  const [timeLeft, setTimeLeft] = useState('Syncing...');
+  
+  useEffect(() => {
+    const updateTime = () => {
+      // If no commit history exists, the agent is standing by for the very first immediate push
+      if (!lastCommitTimestamp) {
+        setTimeLeft('Immediate (Ready for Changes)');
+        return;
+      }
+      
+      const waitTarget = lastCommitTimestamp + (105 * 60 * 1000); // 1h 45m
+      const diff = waitTarget - Date.now();
+      
+      if (diff <= 0) {
+        setTimeLeft('Immediate (Ready for Changes)');
+      } else {
+        const h = Math.floor(diff / (1000 * 60 * 60));
+        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((diff % (1000 * 60)) / 1000);
+        setTimeLeft(`${h > 0 ? h + 'h ' : ''}${m}m ${s}s`);
+      }
+    };
+    
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, [lastCommitTimestamp]);
+
+  return (
+    <div style={{ fontSize: '0.875rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
+      <Clock size={14} /> {timeLeft}
+    </div>
+  );
 };
 
 export function Agents() {
@@ -395,6 +431,12 @@ export function Agents() {
                                    {selectedAgent.lastSeenCommit ? 'Activity Detected' : 'Initializing Handshake'}
                                 </div>
                              </div>
+                             {selectedAgent.type === 'github-monitor' && (
+                               <div className="config-item">
+                                 <label style={{ display: 'block', textTransform: 'uppercase', fontSize: '0.625rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>NEXT COMMIT WINDOW</label>
+                                 <NextCommitCountdown lastCommitTimestamp={modalData?.lastCommitTimestamp} />
+                               </div>
+                             )}
                           </div>
                        </div>
 
