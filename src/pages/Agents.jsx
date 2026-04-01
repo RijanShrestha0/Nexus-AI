@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useIntegrations } from '../hooks/useIntegrations';
 
 const agentTypes = [
-  { id: 'github-monitor', name: 'Repo Sentinel', desc: 'Monitors a local directory and auto-commits to GitHub every 1h45m.', icon: GitBranch },
+  { id: 'github-monitor', name: 'Repo Sentinel', desc: 'Checks the monitored folder every 2h and commits to GitHub only when there are local changes.', icon: GitBranch },
   { id: 'issue-creator', name: 'Issue Architect', desc: 'Identifies environment gaps and autonomously creates GitHub issues.', icon: Terminal },
   { id: 'repo-creator', name: 'Cloud Provisioner', desc: 'Instantly bootstraps repositories and project infrastructure.', icon: Plus }
 ];
@@ -20,22 +20,23 @@ const AgentIcon = ({ type, size = 20, style = {} }) => {
   return <IconComponent size={size} style={style} />;
 };
 
-const NextCommitCountdown = ({ lastCommitTimestamp }) => {
+const MONITOR_CHECK_MS = 2 * 60 * 60 * 1000;
+
+const NextFolderScanCountdown = ({ lastMonitorCheckAt }) => {
   const [timeLeft, setTimeLeft] = useState('Syncing...');
-  
+
   useEffect(() => {
     const updateTime = () => {
-      // If no commit history exists, the agent is standing by for the very first immediate push
-      if (!lastCommitTimestamp) {
-        setTimeLeft('Immediate (Ready for Changes)');
+      if (lastMonitorCheckAt == null) {
+        setTimeLeft('Due now (first folder check)');
         return;
       }
-      
-      const waitTarget = lastCommitTimestamp + (105 * 60 * 1000); // 1h 45m
+      const base = typeof lastMonitorCheckAt === 'number' ? lastMonitorCheckAt : new Date(lastMonitorCheckAt).getTime();
+      const waitTarget = base + MONITOR_CHECK_MS;
       const diff = waitTarget - Date.now();
-      
+
       if (diff <= 0) {
-        setTimeLeft('Immediate (Ready for Changes)');
+        setTimeLeft('Due now');
       } else {
         const h = Math.floor(diff / (1000 * 60 * 60));
         const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -43,11 +44,11 @@ const NextCommitCountdown = ({ lastCommitTimestamp }) => {
         setTimeLeft(`${h > 0 ? h + 'h ' : ''}${m}m ${s}s`);
       }
     };
-    
+
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, [lastCommitTimestamp]);
+  }, [lastMonitorCheckAt]);
 
   return (
     <div style={{ fontSize: '0.875rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
@@ -433,8 +434,8 @@ export function Agents() {
                              </div>
                              {selectedAgent.type === 'github-monitor' && (
                                <div className="config-item">
-                                 <label style={{ display: 'block', textTransform: 'uppercase', fontSize: '0.625rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>NEXT COMMIT WINDOW</label>
-                                 <NextCommitCountdown lastCommitTimestamp={modalData?.lastCommitTimestamp} />
+                                 <label style={{ display: 'block', textTransform: 'uppercase', fontSize: '0.625rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>NEXT FOLDER CHECK</label>
+                                 <NextFolderScanCountdown lastMonitorCheckAt={modalData?.lastMonitorCheckAt} />
                                </div>
                              )}
                           </div>
