@@ -26,6 +26,9 @@ dist-ssr
 
 UPDATE.md
 
+# Local test / Repo Sentinel scratch (not part of Nexus-AI)
+test_push_dir/
+
 # Platform Configuration & Secrets
 .env
 .env.local
