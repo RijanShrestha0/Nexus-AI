@@ -6,12 +6,13 @@ const path = require('path');
 /**
  * Nexus AI Agent Execution Engine
  * Natively executes real-world actions for autonomous nodes.
- * 
- * Repo Sentinel: Monitors a LOCAL file directory and auto-commits & pushes
- *                to a specified GitHub repo every 1h45m.
+ *
+ * Repo Sentinel: Monitors a LOCAL directory on a fixed interval, commits only
+ * when `git status` reports changes there, and pushes to the configured GitHub repo.
  */
 
-const COMMIT_INTERVAL = 105 * 60 * 1000; // 1 hour 45 minutes in ms
+/** How often to scan the monitored folder and run commit/push logic (2 hours). */
+const MONITOR_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Runs a shell command in the given directory and returns stdout.
@@ -52,12 +53,23 @@ async function runAgent(agent) {
       if (!repo) throw new Error("Missing 'repo' (target repository) for Repo Sentinel.");
       if (!localPath) throw new Error("Missing 'localPath' (local directory) for Repo Sentinel.");
 
+      const now = Date.now();
+      if (
+        agent.lastMonitorCheckAt &&
+        now - agent.lastMonitorCheckAt < MONITOR_CHECK_INTERVAL_MS
+      ) {
+        return;
+      }
+
       // Validate directory exists
       if (!fs.existsSync(localPath)) {
         throw new Error(`Local directory does not exist: ${localPath}`);
       }
 
       const absPath = path.resolve(localPath);
+      const markMonitorCheckDone = () => {
+        agent.lastMonitorCheckAt = Date.now();
+      };
 
       // ── Step 1: Initialize git repo if not already ──
       const gitDir = path.join(absPath, '.git');
@@ -107,21 +119,11 @@ async function runAgent(agent) {
         }
       }
 
-      // ── Step 5: Enforce 1h45m commit interval ──
-      const now = Date.now();
-      const lastCommitTime = agent.lastCommitTimestamp || 0;
-      const timeSinceLastCommit = now - lastCommitTime;
-      const isFirstCommit = lastCommitTime === 0;
+      // ── Step 5: Commit only when the monitored tree has local changes; push recovery when needed ──
 
-      // ── CASE A: Unpushed commits exist (from a previous failed push) ──
+      // ── CASE A: Unpushed commits exist, working tree clean — retry push (integration sync, not a new commit) ──
       if (hasUnpushedCommits && !hasChanges) {
         console.log(`[Repo Sentinel] Unit ${agent.id}: Found unpushed commits. Retrying push...`);
-
-        // If there are also new uncommitted changes, stage and amend
-        if (hasChanges) {
-          runGitCommand('git add -A', absPath);
-          runGitCommand('git commit --amend --no-edit', absPath);
-        }
 
         // Sync and push
         if (!agent.initialSyncDone) {
@@ -146,37 +148,19 @@ async function runAgent(agent) {
         }
 
         agent.lastCommitTimestamp = now;
+        markMonitorCheckDone();
         actionResult = { status: 'push-recovered', branch: currentBranch, repo };
         logMessage = `Recovered unpushed commits — successfully pushed to ${repo}:${currentBranch}.`;
       }
 
-      // ── CASE B: No changes and no unpushed commits — idle heartbeat ──
+      // ── CASE B: No changes and no unpushed commits — idle (next folder scan in 2h) ──
       else if (!hasChanges && !hasUnpushedCommits) {
-        const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
-        if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {
-          console.log(`[Repo Sentinel] Unit ${agent.id}: No local changes detected in ${absPath}.`);
-          return;
-        }
-        
-        const minsLeft = Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000);
-        let windowMsg = minsLeft > 0 ? `Next window in ${minsLeft} min` : 'Action Window Open: Awaiting file changes for immediate commit.';
-        
-        logMessage = `Repo Sentinel stable. Watching ${absPath} → ${repo} for local file changes. (${windowMsg})`;
+        markMonitorCheckDone();
+        logMessage = `Repo Sentinel stable. Watching ${absPath} → ${repo}. Next folder check in 2h.`;
         actionResult = { status: 'watching', localPath: absPath, repo };
       }
 
-      // ── CASE C: Changes exist but interval hasn't elapsed ──
-      else if (hasChanges && !isFirstCommit && timeSinceLastCommit < COMMIT_INTERVAL) {
-        const minsRemaining = Math.ceil((COMMIT_INTERVAL - timeSinceLastCommit) / 60000);
-        const lastLog = logsDB.filter(l => l.agentId === agent.id).reverse()[0];
-        if (lastLog && (now - new Date(lastLog.timestamp).getTime() < 600000)) {
-          return;
-        }
-        logMessage = `Changes detected in ${absPath}. Auto-commit scheduled in ${minsRemaining} min (1h45m cycle).`;
-        actionResult = { status: 'pending', changesDetected: true, minsRemaining };
-      }
-
-      // ── CASE D: Changes exist AND commit interval elapsed — COMMIT + PUSH ──
+      // ── CASE C: Working tree has changes — COMMIT + PUSH (only when monitored directory has changes) ──
       else if (hasChanges) {
         console.log(`[Repo Sentinel] Unit ${agent.id}: Committing changes from ${absPath} to ${repo}...`);
 
@@ -220,12 +204,13 @@ async function runAgent(agent) {
 
         // Record success
         agent.lastCommitTimestamp = now;
-        actionResult = { 
-          status: 'committed', 
-          filesChanged: fileCount, 
+        markMonitorCheckDone();
+        actionResult = {
+          status: 'committed',
+          filesChanged: fileCount,
           commitMessage: commitMsg,
           branch: currentBranch,
-          repo 
+          repo
         };
         logMessage = `Auto-committed ${fileCount} file(s) to ${repo}:${currentBranch} — "${commitMsg}"`;
       }
