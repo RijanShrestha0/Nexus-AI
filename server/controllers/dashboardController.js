@@ -1,10 +1,34 @@
-const { agentsDB, integrationsDB, userBaselines, logsDB } = require('../models/database');
+const { agentsDB, integrationsDB, logsDB } = require('../models/database');
+
+/** Estimated hours saved per successful execution (used for overview time-saved and trends). */
+const HOURS_PER_SUCCESS = 0.5;
+
+function successRateFromLogs(logs) {
+  if (!logs.length) return null;
+  const errors = logs.filter((l) => l.type === 'ERROR').length;
+  return ((logs.length - errors) / logs.length) * 100;
+}
 
 exports.getMetrics = (req, res) => {
   const userId = req.user.id;
-  const userAgents = agentsDB.filter(a => a.userId === userId);
-  
-  if (userAgents.length === 0) {
+  const userAgents = agentsDB.filter((a) => a.userId === userId);
+  const userLogs = logsDB.filter((l) => l.userId === userId);
+
+  const now = Date.now();
+  const MS_7D = 7 * 86400000;
+  const currentStart = now - MS_7D;
+  const prevStart = now - 2 * MS_7D;
+
+  const logsInRange = (start, end) =>
+    userLogs.filter((l) => {
+      const t = new Date(l.timestamp).getTime();
+      return t >= start && t < end;
+    });
+
+  const logsLast7d = logsInRange(currentStart, now);
+  const logsPrev7d = logsInRange(prevStart, currentStart);
+
+  if (userAgents.length === 0 && userLogs.length === 0) {
     return res.json({
       metrics: {
         tasksExecuted: '0',
@@ -16,29 +40,79 @@ exports.getMetrics = (req, res) => {
     });
   }
 
-  if (!userBaselines[userId]) {
-    userBaselines[userId] = {
-      baseTasks: 25,
-      successBase: 98.4
-    };
+  const tasksExecuted = userLogs.length;
+  const activeAgents = userAgents.filter((a) => a.status !== 'Inactive').length;
+
+  const errorLogs = userLogs.filter((l) => l.type === 'ERROR');
+  const successCount = userLogs.length - errorLogs.length;
+  const successRate =
+    userLogs.length === 0
+      ? '0.0%'
+      : ((successCount / userLogs.length) * 100).toFixed(1) + '%';
+
+  const timeSavedValue = (successCount * HOURS_PER_SUCCESS).toFixed(1);
+
+  const nLast = logsLast7d.length;
+  const nPrev = logsPrev7d.length;
+  let tasksTrend = '0%';
+  if (nPrev === 0 && nLast === 0) tasksTrend = '0%';
+  else if (nPrev === 0) tasksTrend = nLast > 0 ? '+100%' : '0%';
+  else {
+    const pct = ((nLast - nPrev) / nPrev) * 100;
+    tasksTrend = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
   }
 
-  const base = userBaselines[userId];
-  const totalTasks = base.baseTasks + (userAgents.length * 150);
-  const timeSavedValue = (totalTasks * 0.5).toFixed(1);
-  const successRateValue = (base.successBase + (userAgents.length * 0.1)).toFixed(1);
+  const newAgentsLast7d = userAgents.filter((a) => {
+    const t = new Date(a.createdAt).getTime();
+    return t >= currentStart && t <= now;
+  }).length;
+  const newAgentsPrev7d = userAgents.filter((a) => {
+    const t = new Date(a.createdAt).getTime();
+    return t >= prevStart && t < currentStart;
+  }).length;
+  let agentsTrend = '0';
+  if (newAgentsPrev7d === 0 && newAgentsLast7d === 0) agentsTrend = '0';
+  else if (newAgentsPrev7d === 0) agentsTrend = newAgentsLast7d > 0 ? `+${newAgentsLast7d}` : '0';
+  else {
+    const pct = ((newAgentsLast7d - newAgentsPrev7d) / newAgentsPrev7d) * 100;
+    agentsTrend = (pct >= 0 ? '+' : '') + pct.toFixed(0) + '%';
+  }
+
+  const srLast = successRateFromLogs(logsLast7d);
+  const srPrev = successRateFromLogs(logsPrev7d);
+  let successTrend = '0%';
+  if (srLast === null && srPrev === null) successTrend = '0%';
+  else if (srPrev === null) {
+    successTrend = srLast !== null && srLast > 0 ? `+${srLast.toFixed(1)}pp` : '0%';
+  } else if (srLast === null) successTrend = '0%';
+  else {
+    const diff = srLast - srPrev;
+    successTrend = (diff >= 0 ? '+' : '') + diff.toFixed(1) + 'pp';
+  }
+
+  const succLast = logsLast7d.filter((l) => l.type !== 'ERROR').length;
+  const succPrev = logsPrev7d.filter((l) => l.type !== 'ERROR').length;
+  const hoursLast = succLast * HOURS_PER_SUCCESS;
+  const hoursPrev = succPrev * HOURS_PER_SUCCESS;
+  let timeTrend = '0%';
+  if (hoursPrev === 0 && hoursLast === 0) timeTrend = '0%';
+  else if (hoursPrev === 0) timeTrend = hoursLast > 0 ? '+100%' : '0%';
+  else {
+    const pct = ((hoursLast - hoursPrev) / hoursPrev) * 100;
+    timeTrend = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+  }
 
   res.json({
     metrics: {
-      tasksExecuted: totalTasks.toLocaleString(),
-      activeAgents: userAgents.length,
-      successRate: Math.min(successRateValue, 99.9) + '%',
+      tasksExecuted: tasksExecuted.toLocaleString(),
+      activeAgents,
+      successRate,
       timeSaved: timeSavedValue + 'h',
       trends: {
-        tasks: '+12.5%',
-        agents: `+${userAgents.length}`,
-        success: '+0.2%',
-        time: '+18.2%'
+        tasks: tasksTrend,
+        agents: agentsTrend,
+        success: successTrend,
+        time: timeTrend
       }
     }
   });
