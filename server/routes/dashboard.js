@@ -53,6 +53,10 @@ router.get('/integrations/github/repos', verifyToken, dashboardController.getGit
 // @access  Private
 router.post('/integrations/github/link', verifyToken, dashboardController.linkGitHubToken);
 
+// @route   POST /api/dashboard/integrations/github/refresh
+// @access  Private
+router.post('/integrations/github/refresh', verifyToken, dashboardController.refreshGitHubToken);
+
 // @route   POST /api/dashboard/integrations/google/link
 // @access  Private
 router.post('/integrations/google/link', verifyToken, dashboardController.linkGoogleToken);

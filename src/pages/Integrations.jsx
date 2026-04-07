@@ -22,6 +22,8 @@ export function Integrations() {
    // High-Fidelity Connection Auth State
   const [activeAuth, setActiveAuth] = useState(null); // 'github' | 'gmail'
   const [manualToken, setManualToken] = useState('');
+  const [manualRefreshToken, setManualRefreshToken] = useState('');
+  const [accessTokenExpiresIn, setAccessTokenExpiresIn] = useState('');
   const [authStep, setAuthStep] = useState(1);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -29,6 +31,8 @@ export function Integrations() {
     setActiveAuth(id);
     setAuthStep(1);
     setManualToken('');
+    setManualRefreshToken('');
+    setAccessTokenExpiresIn('');
   };
 
   const handleNativeLink = async () => {
@@ -50,7 +54,9 @@ export function Integrations() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ 
-          accessToken: activeAuth === 'github' ? manualToken : 'internal_platform_session' 
+          accessToken: activeAuth === 'github' ? manualToken : 'internal_platform_session',
+          refreshToken: activeAuth === 'github' ? manualRefreshToken : undefined,
+          expiresIn: activeAuth === 'github' && accessTokenExpiresIn ? Number(accessTokenExpiresIn) : undefined
         })
       });
       
@@ -182,7 +188,7 @@ export function Integrations() {
                    </p>
 
                    {activeAuth === 'github' && (
-                      <div className="form-group" style={{ textAlign: 'left', marginBottom: '1.5rem' }}>
+                     <div className="form-group" style={{ textAlign: 'left', marginBottom: '1.5rem' }}>
                          <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', marginBottom: '0.5rem', display: 'block' }}>Personal Access Token (PAT)</label>
                          <input 
                            type="password"
@@ -195,6 +201,27 @@ export function Integrations() {
                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
                             Ensure your token has <strong>repo</strong> permissions for node deployment.
                          </p>
+
+                         <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', margin: '0.9rem 0 0.5rem', display: 'block' }}>Refresh Token (Optional)</label>
+                         <input
+                           type="password"
+                           className="form-input"
+                           placeholder="ghr_..."
+                           value={manualRefreshToken}
+                           onChange={(e) => setManualRefreshToken(e.target.value)}
+                           style={{ width: '100%', padding: '0.75rem', background: 'var(--surface-light)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)' }}
+                         />
+
+                         <label className="form-label" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--label-primary)', margin: '0.9rem 0 0.5rem', display: 'block' }}>Access Token Expires In (Seconds, Optional)</label>
+                         <input
+                           type="number"
+                           min="1"
+                           className="form-input"
+                           placeholder="3600"
+                           value={accessTokenExpiresIn}
+                           onChange={(e) => setAccessTokenExpiresIn(e.target.value)}
+                           style={{ width: '100%', padding: '0.75rem', background: 'var(--surface-light)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)' }}
+                         />
                       </div>
                    )}
 

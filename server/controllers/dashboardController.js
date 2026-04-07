@@ -1,4 +1,9 @@
 const { agentsDB, integrationsDB, logsDB } = require('../models/database');
+const {
+  expiresInToIso,
+  githubFetchWithAutoRefresh,
+  refreshGitHubAccessToken
+} = require('../services/githubAuth');
 
 /** Estimated hours saved per successful execution (used for overview time-saved and trends). */
 const HOURS_PER_SUCCESS = 0.5;
@@ -175,19 +180,16 @@ exports.addAgent = (req, res) => {
 
 exports.getGitHubRepos = async (req, res) => {
   const userId = req.user.id;
-  const userIntegrations = integrationsDB[userId];
-  const githubToken = userIntegrations?.github?.accessToken || process.env.GITHUB_ACCESS_TOKEN;
-
-  if (!githubToken) {
-    return res.status(400).json({ error: 'GitHub Authentication missing for your account context.' });
-  }
 
   try {
-    const response = await fetch('https://api.github.com/user/repos?per_page=100', {
-       headers: {
-        'Authorization': `Bearer ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'NexusAI-Frontend'
+    const response = await githubFetchWithAutoRefresh({
+      userId,
+      url: 'https://api.github.com/user/repos?per_page=100',
+      options: {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'NexusAI-Frontend'
+        }
       }
     });
 
@@ -248,7 +250,16 @@ exports.getIntegrations = (req, res) => {
   if (!integrationsDB[userId]) {
     integrationsDB[userId] = { 
        slack: { connected: false }, 
-       github: { connected: !!process.env.GITHUB_ACCESS_TOKEN, accessToken: process.env.GITHUB_ACCESS_TOKEN || null },
+       github: {
+         connected: !!process.env.GITHUB_ACCESS_TOKEN,
+         accessToken: process.env.GITHUB_ACCESS_TOKEN || null,
+         refreshToken: null,
+         expiresAt: null,
+         refreshTokenExpiresAt: null,
+         username: null,
+         scope: null,
+         tokenType: null
+       },
        postgres: { connected: false },
        gmail: { connected: false }
     };
@@ -275,7 +286,7 @@ exports.getIntegrations = (req, res) => {
 
 exports.linkGitHubToken = async (req, res) => {
   const userId = req.user.id;
-  const { accessToken } = req.body;
+  const { accessToken, refreshToken, expiresIn, expiresAt, refreshTokenExpiresIn } = req.body;
   
   console.log(`[Handshake] Unit ${userId} requesting GitHub platform bridge...`);
 
@@ -283,6 +294,9 @@ exports.linkGitHubToken = async (req, res) => {
   const sanitizedToken = (accessToken === 'internal_platform_session') 
     ? process.env.GITHUB_ACCESS_TOKEN 
     : accessToken?.trim();
+  const sanitizedRefreshToken = refreshToken?.trim() || null;
+  const normalizedExpiresAt = expiresAt || (expiresIn ? expiresInToIso(expiresIn) : null);
+  const normalizedRefreshExpiresAt = refreshTokenExpiresIn ? expiresInToIso(refreshTokenExpiresIn) : null;
 
   if (!sanitizedToken) {
      console.warn(`[Handshake] Bridge rejected: System-level GITHUB_ACCESS_TOKEN is null in environment context.`);
@@ -323,25 +337,67 @@ exports.linkGitHubToken = async (req, res) => {
      if (!integrationsDB[userId]) {
         integrationsDB[userId] = { 
            slack: { connected: false }, 
-           github: { connected: false, accessToken: null, username: null },
+          github: {
+           connected: false,
+           accessToken: null,
+           refreshToken: null,
+           expiresAt: null,
+           refreshTokenExpiresAt: null,
+           username: null,
+           scope: null,
+           tokenType: null
+          },
            postgres: { connected: false },
            gmail: { connected: false }
         };
      }
 
      integrationsDB[userId].github.accessToken = sanitizedToken;
+      integrationsDB[userId].github.refreshToken = sanitizedRefreshToken;
+      integrationsDB[userId].github.expiresAt = normalizedExpiresAt;
+      integrationsDB[userId].github.refreshTokenExpiresAt = normalizedRefreshExpiresAt;
      integrationsDB[userId].github.connected = true;
      integrationsDB[userId].github.username = userData.login;
 
      res.json({ 
         success: true, 
         message: `Successfully bridged GitHub account: ${userData.login}`,
-        username: userData.login
+        username: userData.login,
+        expiresAt: normalizedExpiresAt
      });
 
   } catch (err) {
      console.error(err);
      res.status(500).json({ error: 'Failing to establish secure handshake with GitHub API sector.' });
+  }
+};
+
+exports.refreshGitHubToken = async (req, res) => {
+  const userId = req.user.id;
+  const githubIntegration = integrationsDB[userId]?.github;
+
+  if (!githubIntegration?.refreshToken) {
+    return res.status(400).json({ error: 'No GitHub refresh token mapped for this account.' });
+  }
+
+  try {
+    const refreshed = await refreshGitHubAccessToken(githubIntegration.refreshToken);
+    githubIntegration.accessToken = refreshed.accessToken;
+    githubIntegration.refreshToken = refreshed.refreshToken;
+    githubIntegration.expiresAt = refreshed.expiresAt;
+    githubIntegration.refreshTokenExpiresAt = refreshed.refreshTokenExpiresAt;
+    githubIntegration.scope = refreshed.scope;
+    githubIntegration.tokenType = refreshed.tokenType;
+    githubIntegration.connected = true;
+
+    res.json({
+      success: true,
+      message: 'GitHub token refreshed successfully.',
+      expiresAt: refreshed.expiresAt
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to refresh GitHub access token.' });
   }
 };
 
@@ -422,7 +478,16 @@ exports.toggleIntegration = (req, res) => {
   if (!integrationsDB[userId]) {
     integrationsDB[userId] = { 
        slack: { connected: false }, 
-       github: { connected: !!process.env.GITHUB_ACCESS_TOKEN, accessToken: process.env.GITHUB_ACCESS_TOKEN || null },
+       github: {
+         connected: !!process.env.GITHUB_ACCESS_TOKEN,
+         accessToken: process.env.GITHUB_ACCESS_TOKEN || null,
+         refreshToken: null,
+         expiresAt: null,
+         refreshTokenExpiresAt: null,
+         username: null,
+         scope: null,
+         tokenType: null
+       },
        postgres: { connected: false },
        gmail: { connected: false }
     };
