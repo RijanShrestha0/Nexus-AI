@@ -27,8 +27,15 @@ function runGitCommand(cmd, cwd) {
   }
 }
 
+/** Re-read DB so mid-run deactivation always stops work (same tick + after await). */
+function isAgentActive(agentId) {
+  const a = agentsDB.find((x) => x.id === agentId);
+  return a && a.status === 'Active';
+}
 
 async function runAgent(agent) {
+  if (!isAgentActive(agent.id)) return;
+
   const userId = agent.userId;
   const userIntegrations = integrationsDB[userId];
   const githubToken = userIntegrations?.github?.accessToken || process.env.GITHUB_ACCESS_TOKEN;
@@ -37,6 +44,8 @@ async function runAgent(agent) {
     console.error(`[Agent Engine] No GitHub token mapped for user ${userId}. Skipping unit ${agent.id}.`);
     return;
   }
+
+  if (!isAgentActive(agent.id)) return;
 
   try {
     const { repo, issueTitle, issueBody, localPath } = agent.config || {};
@@ -60,6 +69,8 @@ async function runAgent(agent) {
       ) {
         return;
       }
+
+      if (!isAgentActive(agent.id)) return;
 
       // Validate directory exists
       if (!fs.existsSync(localPath)) {
@@ -119,6 +130,8 @@ async function runAgent(agent) {
         }
       }
 
+      if (!isAgentActive(agent.id)) return;
+
       // ── Step 5: Commit only when the monitored tree has local changes; push recovery when needed ──
 
       // ── CASE A: Unpushed commits exist, working tree clean — retry push (integration sync, not a new commit) ──
@@ -137,6 +150,8 @@ async function runAgent(agent) {
           }
           agent.initialSyncDone = true;
         }
+
+        if (!isAgentActive(agent.id)) return;
 
         let pushResult = runGitCommand(`git push -u origin ${currentBranch}`, absPath);
         if (pushResult === null) {
@@ -179,6 +194,8 @@ async function runAgent(agent) {
           throw new Error('Git commit failed. There may be nothing to commit after staging.');
         }
 
+        if (!isAgentActive(agent.id)) return;
+
         // Sync with remote before pushing (first time only)
         if (!agent.initialSyncDone) {
           console.log(`[Repo Sentinel] First sync — fetching remote and merging histories...`);
@@ -191,6 +208,8 @@ async function runAgent(agent) {
           }
           agent.initialSyncDone = true;
         }
+
+        if (!isAgentActive(agent.id)) return;
 
         // Push to remote
         let pushResult = runGitCommand(`git push -u origin ${currentBranch}`, absPath);
@@ -226,6 +245,8 @@ async function runAgent(agent) {
         return; 
       }
 
+      if (!isAgentActive(agent.id)) return;
+
       const response = await fetch(`https://api.github.com/repos/${repo}/issues`, {
         method: 'POST',
         headers: {
@@ -240,9 +261,13 @@ async function runAgent(agent) {
         })
       });
 
+      if (!isAgentActive(agent.id)) return;
+
       if (!response.ok) throw new Error(`GitHub API Error: ${response.status} ${response.statusText}`);
       
       const issue = await response.json();
+
+      if (!isAgentActive(agent.id)) return;
       agent.lastActionTimestamp = Date.now();
       actionResult = { id: issue.id, url: issue.html_url };
       logMessage = `Successfully created GitHub issue: "${issue.title}" in ${repo}.`;
@@ -256,6 +281,8 @@ async function runAgent(agent) {
       const isPrivate = agent.config.private === true;
       
       if (agent.lastActionTimestamp) return;
+
+      if (!isAgentActive(agent.id)) return;
 
       const response = await fetch(`https://api.github.com/user/repos`, {
         method: 'POST',
@@ -273,12 +300,16 @@ async function runAgent(agent) {
         })
       });
 
+      if (!isAgentActive(agent.id)) return;
+
       if (!response.ok) {
          const error = await response.json();
          throw new Error(`GitHub Repo Creation Failed: ${error.message || response.statusText}`);
       }
       
       const newRepo = await response.json();
+
+      if (!isAgentActive(agent.id)) return;
       agent.lastActionTimestamp = Date.now();
       agent.status = 'Inactive'; 
       

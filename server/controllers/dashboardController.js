@@ -145,7 +145,10 @@ exports.toggleAgentStatus = (req, res) => {
 
   const agent = agentsDB.find(a => a.id === id && a.userId === userId);
   if (agent) {
-    agent.status = status; // Active | Inactive
+    if (status !== 'Active' && status !== 'Inactive') {
+      return res.status(400).json({ error: 'Status must be Active or Inactive.' });
+    }
+    agent.status = status;
     res.json({ message: `Agent Unit ${id} status toggled manually.`, agent });
   } else {
     res.status(404).json({ error: 'Agent unit mapping not found.' });
