@@ -4,6 +4,56 @@ const {
   githubFetchWithAutoRefresh,
   refreshGitHubAccessToken
 } = require('../services/githubAuth');
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../middleware/auth');
+const {
+  expiresInToIso: googleExpiresInToIso,
+  googleFetchWithAutoRefresh,
+  refreshGoogleAccessToken
+} = require('../services/googleAuth');
+
+const DEFAULT_FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const DEFAULT_GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5005/api/dashboard/integrations/google/callback';
+
+function ensureUserIntegrations(userId) {
+  if (!integrationsDB[userId]) {
+    integrationsDB[userId] = {
+      slack: { connected: false },
+      github: {
+        connected: !!process.env.GITHUB_ACCESS_TOKEN,
+        accessToken: process.env.GITHUB_ACCESS_TOKEN || null,
+        refreshToken: null,
+        expiresAt: null,
+        refreshTokenExpiresAt: null,
+        username: null,
+        scope: null,
+        tokenType: null
+      },
+      postgres: { connected: false },
+      gmail: {
+        connected: false,
+        accessToken: null,
+        refreshToken: null,
+        expiresAt: null,
+        email: null,
+        scope: null,
+        tokenType: null
+      }
+    };
+  }
+
+  if (!integrationsDB[userId].gmail || typeof integrationsDB[userId].gmail !== 'object') {
+    integrationsDB[userId].gmail = {
+      connected: false,
+      accessToken: null,
+      refreshToken: null,
+      expiresAt: null,
+      email: null,
+      scope: null,
+      tokenType: null
+    };
+  }
+}
 
 /** Estimated hours saved per successful execution (used for overview time-saved and trends). */
 const HOURS_PER_SUCCESS = 0.5;
@@ -247,23 +297,7 @@ exports.getActivityFeed = (req, res) => {
 
 exports.getIntegrations = (req, res) => {
   const userId = req.user.id;
-  if (!integrationsDB[userId]) {
-    integrationsDB[userId] = { 
-       slack: { connected: false }, 
-       github: {
-         connected: !!process.env.GITHUB_ACCESS_TOKEN,
-         accessToken: process.env.GITHUB_ACCESS_TOKEN || null,
-         refreshToken: null,
-         expiresAt: null,
-         refreshTokenExpiresAt: null,
-         username: null,
-         scope: null,
-         tokenType: null
-       },
-       postgres: { connected: false },
-       gmail: { connected: false }
-    };
-  }
+  ensureUserIntegrations(userId);
   
   // Flatten for UI: { slack: { connected: false }, github: { connected: true, username: '...' } }
   const uiIntegrations = {};
@@ -403,37 +437,25 @@ exports.refreshGitHubToken = async (req, res) => {
 
 exports.linkGoogleToken = async (req, res) => {
   const userId = req.user.id;
-  const { accessToken } = req.body;
+  const { accessToken, refreshToken, expiresIn, expiresAt } = req.body;
   
   // High-Fidelity platform bridge: automatically use the pre-configured system token
-  const sanitizedToken = (accessToken === 'internal_platform_session') 
-    ? process.env.GOOGLE_ACCESS_TOKEN || 'ya29.mock_token_success' 
-    : accessToken?.trim();
+  const sanitizedToken = accessToken?.trim();
+  const sanitizedRefreshToken = refreshToken?.trim() || null;
+  const normalizedExpiresAt = expiresAt || (expiresIn ? googleExpiresInToIso(expiresIn) : null);
 
   if (!sanitizedToken) {
      return res.status(400).json({ error: 'Google Platform Bridge failed: Environment context is missing.' });
   }
 
   try {
-     // If it's a mock token, skip real API check for rapid dev experience
-     if (sanitizedToken === 'ya29.mock_token_success') {
-         if (!integrationsDB[userId]) {
-            integrationsDB[userId] = { slack: false, github: { connected: false }, postgres: false, gmail: { connected: false } };
-         }
-         integrationsDB[userId].gmail = { connected: true, accessToken: sanitizedToken, email: 'user@nexus-ai.dev' };
-         return res.json({ success: true, message: 'Simulated Google Cloud Handshake Successful.' });
-     }
+      ensureUserIntegrations(userId);
 
-     // Physically validate token against Google API boundaries - Try Header first
-     let response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: {
-           'Authorization': `Bearer ${sanitizedToken}`
-        }
-     });
-
-     if (!response.ok && response.status === 401) {
-        response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${sanitizedToken}`);
-     }
+      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+       headers: {
+        'Authorization': `Bearer ${sanitizedToken}`
+       }
+      });
 
      if (!response.ok) {
         const errorData = await response.json();
@@ -446,16 +468,9 @@ exports.linkGoogleToken = async (req, res) => {
 
      const userData = await response.json();
 
-     if (!integrationsDB[userId]) {
-        integrationsDB[userId] = { 
-           slack: { connected: false }, 
-           github: { connected: false, accessToken: null },
-           postgres: { connected: false },
-           gmail: { connected: false }
-        };
-     }
-
      integrationsDB[userId].gmail.accessToken = sanitizedToken;
+      integrationsDB[userId].gmail.refreshToken = sanitizedRefreshToken;
+      integrationsDB[userId].gmail.expiresAt = normalizedExpiresAt;
      integrationsDB[userId].gmail.connected = true;
      integrationsDB[userId].gmail.email = userData.email;
 
@@ -471,27 +486,163 @@ exports.linkGoogleToken = async (req, res) => {
   }
 };
 
+exports.startGoogleWorkspaceAuth = (req, res) => {
+  const userId = req.user.id;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+
+  if (!clientId) {
+    return res.status(500).json({ error: 'Google OAuth client ID is missing in environment config.' });
+  }
+
+  const stateToken = jwt.sign(
+    { userId, provider: 'google' },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: DEFAULT_GOOGLE_REDIRECT_URI,
+    response_type: 'code',
+    access_type: 'offline',
+    prompt: 'consent',
+    include_granted_scopes: 'true',
+    scope: [
+      'openid',
+      'email',
+      'profile',
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send'
+    ].join(' '),
+    state: stateToken
+  });
+
+  res.json({
+    success: true,
+    authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
+  });
+};
+
+exports.handleGoogleWorkspaceCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=${encodeURIComponent(String(error))}`);
+  }
+
+  if (!code || !state) {
+    return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=missing_oauth_code_or_state`);
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(String(state), JWT_SECRET);
+  } catch (verifyError) {
+    return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=invalid_or_expired_state`);
+  }
+
+  const userId = decoded.userId;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=missing_google_client_credentials`);
+  }
+
+  try {
+    const tokenBody = new URLSearchParams({
+      code: String(code),
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: DEFAULT_GOOGLE_REDIRECT_URI,
+      grant_type: 'authorization_code'
+    });
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: tokenBody.toString()
+    });
+
+    const tokenPayload = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenPayload.access_token) {
+      const details = tokenPayload.error_description || tokenPayload.error || 'token_exchange_failed';
+      return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=${encodeURIComponent(details)}`);
+    }
+
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: {
+        'Authorization': `Bearer ${tokenPayload.access_token}`
+      }
+    });
+
+    const userInfoPayload = await userInfoResponse.json();
+    if (!userInfoResponse.ok) {
+      const details = userInfoPayload.error_description || userInfoPayload.error || 'userinfo_lookup_failed';
+      return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=${encodeURIComponent(details)}`);
+    }
+
+    ensureUserIntegrations(userId);
+    integrationsDB[userId].gmail.connected = true;
+    integrationsDB[userId].gmail.accessToken = tokenPayload.access_token;
+    integrationsDB[userId].gmail.refreshToken = tokenPayload.refresh_token || integrationsDB[userId].gmail.refreshToken || null;
+    integrationsDB[userId].gmail.expiresAt = tokenPayload.expires_in ? googleExpiresInToIso(tokenPayload.expires_in) : null;
+    integrationsDB[userId].gmail.scope = tokenPayload.scope || null;
+    integrationsDB[userId].gmail.tokenType = tokenPayload.token_type || 'Bearer';
+    integrationsDB[userId].gmail.email = userInfoPayload.email || null;
+
+    return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=connected&email=${encodeURIComponent(userInfoPayload.email || '')}`);
+  } catch (exchangeError) {
+    return res.redirect(`${DEFAULT_FRONTEND_URL}/integrations?google_status=error&message=${encodeURIComponent('oauth_exchange_crashed')}`);
+  }
+};
+
+exports.refreshGoogleToken = async (req, res) => {
+  const userId = req.user.id;
+  ensureUserIntegrations(userId);
+  const gmailIntegration = integrationsDB[userId].gmail;
+
+  if (!gmailIntegration.refreshToken) {
+    return res.status(400).json({ error: 'No Google refresh token mapped for this account.' });
+  }
+
+  try {
+    const refreshed = await refreshGoogleAccessToken(gmailIntegration.refreshToken);
+    gmailIntegration.accessToken = refreshed.accessToken;
+    gmailIntegration.expiresAt = refreshed.expiresAt;
+    gmailIntegration.scope = refreshed.scope;
+    gmailIntegration.tokenType = refreshed.tokenType;
+    gmailIntegration.connected = true;
+
+    // Validate refresh result by requesting user profile once.
+    const profileResponse = await googleFetchWithAutoRefresh({
+      userId,
+      url: 'https://www.googleapis.com/oauth2/v3/userinfo'
+    });
+
+    if (profileResponse.ok) {
+      const profile = await profileResponse.json();
+      gmailIntegration.email = profile.email || gmailIntegration.email || null;
+    }
+
+    res.json({
+      success: true,
+      message: 'Google access token refreshed successfully.',
+      expiresAt: refreshed.expiresAt,
+      email: gmailIntegration.email
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to refresh Google access token.' });
+  }
+};
+
 exports.toggleIntegration = (req, res) => {
   const userId = req.user.id;
   const { integrationId } = req.body;
-  
-  if (!integrationsDB[userId]) {
-    integrationsDB[userId] = { 
-       slack: { connected: false }, 
-       github: {
-         connected: !!process.env.GITHUB_ACCESS_TOKEN,
-         accessToken: process.env.GITHUB_ACCESS_TOKEN || null,
-         refreshToken: null,
-         expiresAt: null,
-         refreshTokenExpiresAt: null,
-         username: null,
-         scope: null,
-         tokenType: null
-       },
-       postgres: { connected: false },
-       gmail: { connected: false }
-    };
-  }
+  ensureUserIntegrations(userId);
 
   if (integrationId in integrationsDB[userId]) {
     integrationsDB[userId][integrationId].connected = !integrationsDB[userId][integrationId].connected;

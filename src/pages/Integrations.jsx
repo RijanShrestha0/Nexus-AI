@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from '../components/layout/Sidebar';
-import { GitBranch, Hash, Database, Mail, Link as LinkIcon, Loader2, X, Key, AlertCircle, CheckCircle2, ShieldCheck, Globe } from 'lucide-react';
+import { GitBranch, Hash, Database, Mail, Link as LinkIcon, Loader2, CheckCircle2, ShieldCheck, Globe } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { useIntegrations } from '../hooks/useIntegrations';
 import { useAuth } from '../context/AuthContext';
@@ -27,6 +27,25 @@ export function Integrations() {
   const [authStep, setAuthStep] = useState(1);
   const [authLoading, setAuthLoading] = useState(false);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const googleStatus = params.get('google_status');
+    const googleMessage = params.get('message');
+    const googleEmail = params.get('email');
+
+    if (!googleStatus) return;
+
+    if (googleStatus === 'connected') {
+      addToast(`Google Workspace connected${googleEmail ? `: ${googleEmail}` : ''}.`, 'success');
+      window.setTimeout(() => window.location.reload(), 400);
+    } else if (googleStatus === 'error') {
+      addToast(`Google connection failed${googleMessage ? `: ${googleMessage}` : '.'}`, 'error');
+    }
+
+    const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+    window.history.replaceState({}, document.title, cleanUrl);
+  }, [addToast]);
+
   const startAuthorization = (id) => {
     setActiveAuth(id);
     setAuthStep(1);
@@ -42,12 +61,27 @@ export function Integrations() {
     }
     setAuthLoading(true);
     
-    // Determine mapping endpoint
-    const endpoint = activeAuth === 'github' ? 'github/link' : 'google/link';
-    
     try {
+      if (activeAuth === 'gmail') {
+        const response = await fetch('http://localhost:5005/api/dashboard/integrations/google/auth-url', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.authUrl) {
+          addToast(data.error || 'Unable to start Google sign-in flow.', 'error');
+          return;
+        }
+
+        window.location.href = data.authUrl;
+        return;
+      }
+
       // Step 2: Request platform state-bridge
-      const response = await fetch(`http://localhost:5005/api/dashboard/integrations/${endpoint}`, {
+      const response = await fetch('http://localhost:5005/api/dashboard/integrations/github/link', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -232,7 +266,7 @@ export function Integrations() {
 
                    <div style={{ display: 'flex', gap: '1rem' }}>
                       <Button variant="primary" style={{ flex: 1 }} onClick={handleNativeLink} disabled={authLoading}>
-                         {authLoading ? <Loader2 size={16} className="animate-spin" /> : `Authorize ${activeAuth === 'github' ? 'GitHub' : 'Google'}`}
+                       {authLoading ? <Loader2 size={16} className="animate-spin" /> : (activeAuth === 'github' ? 'Authorize GitHub' : 'Continue with Google')}
                       </Button>
                       <Button variant="ghost" onClick={() => setActiveAuth(null)}>Cancel</Button>
                    </div>

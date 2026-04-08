@@ -61,4 +61,16 @@ router.post('/integrations/github/refresh', verifyToken, dashboardController.ref
 // @access  Private
 router.post('/integrations/google/link', verifyToken, dashboardController.linkGoogleToken);
 
+// @route   GET /api/dashboard/integrations/google/auth-url
+// @access  Private
+router.get('/integrations/google/auth-url', verifyToken, dashboardController.startGoogleWorkspaceAuth);
+
+// @route   GET /api/dashboard/integrations/google/callback
+// @access  Public (OAuth callback)
+router.get('/integrations/google/callback', dashboardController.handleGoogleWorkspaceCallback);
+
+// @route   POST /api/dashboard/integrations/google/refresh
+// @access  Private
+router.post('/integrations/google/refresh', verifyToken, dashboardController.refreshGoogleToken);
+
 module.exports = router;
